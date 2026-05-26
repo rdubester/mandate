@@ -76,7 +76,7 @@ export const FACTION_NAME = Object.fromEntries(
 ) as Record<FactionId, string>;
 
 export const CONFIG = {
-  mandate_target: 100,
+  mandate_target: 20,
   actions_per_turn: 2,
   max_turns: 200,
 
@@ -214,10 +214,10 @@ export const DECREES: Record<string, Decree> = {
     id: "civic_endowment",
     name: "Civic Endowment",
     type: "positive",
-    text: "When any player draws a card, they may draw +1. If supported & they do, supporters score 1.",
+    text: "When any player draws a card, they may draw +1. If supported & they do, supporters score 3.",
     trigger: { on: "draw" },
     rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 card" },
-    score: { when: "compliance", amount: 1 },
+    score: { when: "compliance", amount: 3 },
   },
   // academic_census is COMMENTED OUT: it triggers on drawing a RESEARCH card, but no
   // research deck exists until Blue, so it can never bite — and the bot would still waste
@@ -235,10 +235,10 @@ export const DECREES: Record<string, Decree> = {
     id: "open_records",
     name: "Open Records",
     type: "positive",
-    text: "When any player rallies supporters, they get +1 supporter. If supported, supporters score 1 each time.",
+    text: "When any player rallies supporters, they get +1 supporter. If supported, supporters score 3 each time.",
     trigger: { on: "rally_supporters" },
     effect: [{ op: "add", path: "yieldN", n: 1 }],
-    score: { when: "always", amount: 1 },
+    score: { when: "always", amount: 3 },
   },
   martial_restraint: {
     id: "martial_restraint",
@@ -260,9 +260,9 @@ export const DECREES: Record<string, Decree> = {
     id: "public_works",
     name: "Public Works",
     type: "positive",
-    text: "When any player rallies supporters, if supported supporters score 1 (no effect on the rally itself).",
+    text: "When any player rallies supporters, if supported supporters score 3 (no effect on the rally itself).",
     trigger: { on: "rally_supporters" },
-    score: { when: "always", amount: 1 },
+    score: { when: "always", amount: 3 },
   },
 };
 
