@@ -1,5 +1,5 @@
 import type { BoardProps } from "boardgame.io/react";
-import { strikeCost, availableVerbs, type GameState } from "./game";
+import { strikeCost, canDo, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
 
 type Props = BoardProps<GameState>;
@@ -38,8 +38,6 @@ export function MandateBoard(props: Props) {
   const active = ctx.currentPlayer as FactionId;
   const gameOver = ctx.gameover;
   const canStrike = G.red.zealots >= strikeCost(G);
-  const whiteVerbs = availableVerbs(WHITE);
-  const redVerbs = availableVerbs(RED);
 
   return (
     <div className="board">
@@ -117,13 +115,13 @@ export function MandateBoard(props: Props) {
 
         {active === WHITE && !gameOver && (
           <div className="action-bar">
-            {whiteVerbs.includes("rally_supporters") && (
+            {canDo(WHITE, "rally_supporters") && (
               <button onClick={() => moves.rallySupporters()}>
                 Rally Supporters (+{CONFIG.unit_yield.rally_supporters})
               </button>
             )}
-            {whiteVerbs.includes("research") && (
-              <button onClick={() => moves.research()}>Research (draw 1)</button>
+            {canDo(WHITE, "deliberate") && (
+              <button onClick={() => moves.deliberate()}>Deliberate (draw 1)</button>
             )}
           </div>
         )}
@@ -138,15 +136,12 @@ export function MandateBoard(props: Props) {
 
         {active === RED && !gameOver && (
           <div className="action-bar">
-            {redVerbs.includes("muster_zealots") && (
+            {canDo(RED, "muster_zealots") && (
               <button onClick={() => moves.musterZealots()}>
                 Muster Zealots (+{CONFIG.unit_yield.muster_zealots})
               </button>
             )}
-            {redVerbs.includes("research") && (
-              <button onClick={() => moves.research()}>Research</button>
-            )}
-            {redVerbs.includes("strike") && (
+            {canDo(RED, "strike") && (
               <button
                 disabled={!canStrike}
                 onClick={() => moves.strikeMandate()}
@@ -155,7 +150,7 @@ export function MandateBoard(props: Props) {
                 Strike White's Mandate (cost {strikeCost(G)})
               </button>
             )}
-            {redVerbs.includes("strike") && G.white.decreesInPlay.length > 0 && (
+            {canDo(RED, "strike") && G.white.decreesInPlay.length > 0 && (
               <div className="strike-decree-group">
                 <span>Strike a decree:</span>
                 {G.white.decreesInPlay.map((id, i) => (

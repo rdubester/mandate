@@ -6,7 +6,8 @@ import {
   WHITE,
   RED,
   WHITE_DECK_TEMPLATE,
-  availableVerbs,
+  canDo,
+  verbsFor,
   type FactionId,
 } from "./config";
 
@@ -166,12 +167,10 @@ function strikeCost(G: GameState): number {
   return CONFIG.scoring.strike_landed.zealot_cost + delta;
 }
 
-// Guard shared by every move: right player, their turn, verb in their menu.
+// Guard shared by every move: right player, their turn, and their colour can do
+// this verb (the whole availability rule lives in canDo).
 function canAct(player: string, ctx: { currentPlayer: string }, verb: string): boolean {
-  return (
-    player === ctx.currentPlayer &&
-    availableVerbs(player as FactionId).includes(verb)
-  );
+  return player === ctx.currentPlayer && canDo(player as FactionId, verb);
 }
 
 // ---- moves -----------------------------------------------------------------
@@ -212,17 +211,20 @@ const musterZealots: Move<GameState> = ({ G, playerID, ctx }) => {
   growUnits(G, playerID as FactionId, "muster_zealots", "zealots");
 };
 
-const research: Move<GameState> = ({ G, playerID, ctx }) => {
-  if (!playerID || !canAct(playerID, ctx, "research")) return INVALID_MOVE;
+// White draws from its own deck. Named 'deliberate' (vs 'research') because for now
+// it is White-only {W} — drawing decrees, not Blue's research. When Blue arrives this
+// likely becomes a shared W–U verb; reskin then.
+const deliberate: Move<GameState> = ({ G, playerID, ctx }) => {
+  if (!playerID || !canAct(playerID, ctx, "deliberate")) return INVALID_MOVE;
   const me = playerID as FactionId;
   const p = G[playerKey(me)];
   p.playedResearchThisTurn = true;
   if (p.deck.length === 0) {
-    G.log.push(`${playerKey(me)} researches (no deck)`);
+    G.log.push(`${playerKey(me)} deliberates (no deck)`);
     return;
   }
-  const n = drawCards(G, me, 1, "research");
-  G.log.push(`${playerKey(me)} researches: drew ${n}`);
+  const n = drawCards(G, me, 1, "decree");
+  G.log.push(`${playerKey(me)} deliberates: drew ${n}`);
 };
 
 const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
@@ -337,7 +339,7 @@ export const MandateGame: Game<GameState> = {
     enactDecree,
     rallySupporters,
     musterZealots,
-    research,
+    deliberate,
     strikeMandate,
     strikeDecree,
   },
@@ -360,4 +362,4 @@ export const MandateGame: Game<GameState> = {
 };
 
 // Re-exported for the board UI (preview strike cost / availability).
-export { strikeCost, availableVerbs };
+export { strikeCost, canDo, verbsFor };

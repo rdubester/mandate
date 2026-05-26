@@ -9,11 +9,10 @@ import {
   DECREES,
   VERBS,
   CHARACTERS,
-  SHARD,
   WHITE_DECK_TEMPLATE,
-  availableVerbs,
+  verbsFor,
+  shardOf,
   WHITE,
-  type FactionId,
   type Decree,
   type VerbSpec,
 } from "./config";
@@ -23,8 +22,6 @@ function deckCounts(): Record<string, number> {
   for (const id of WHITE_DECK_TEMPLATE) out[id] = (out[id] ?? 0) + 1;
   return out;
 }
-
-const facName = (id: FactionId) => (id === WHITE ? "White" : "Red");
 
 // A field row: "key: value" in mono, for the spec look.
 function Field({ k, v }: { k: string; v: ReactNode }) {
@@ -69,20 +66,18 @@ function DecreeSpec({ d }: { d: Decree }) {
 }
 
 function VerbSpecCard({ v }: { v: VerbSpec }) {
-  // Shared verbs: who can use them is "any character whose shard contains one of
-  // these colours" — so we just show the colours and let the reader match. Signature
-  // verbs aren't colour-gated, so we show their named owner instead.
+  // Who can do this = which (built) characters' single colour is among the tags. A
+  // one-tag verb resolves to one character (a de-facto signature); two adjacent tags
+  // resolve to the two wing-neighbours. Derived, never declared.
+  const doers = CHARACTERS.filter((c) => v.colours.includes(c.colour)).map((c) => c.name);
   return (
     <div className="spec-card">
       <div className="spec-head">
         <span className="spec-id">{v.name}</span>
-        <span className="rb-muted">{v.tier}</span>
+        <span className="rb-muted">{v.colours.length === 1 ? "1 colour" : `${v.colours.length} colours`}</span>
       </div>
-      {v.tier === "signature" ? (
-        <Field k="signature of" v={v.signatureOf !== undefined ? facName(v.signatureOf) : "?"} />
-      ) : (
-        <Field k="colours" v={v.colours.join(" / ")} />
-      )}
+      <Field k="colours" v={v.colours.join(" / ")} />
+      <Field k="can do" v={doers.join(", ") || <span className="rb-muted">none built yet</span>} />
       {v.yields && <Field k="yields" v={`+${v.yields.amount} ${v.yields.unit}`} />}
       {v.spends && <Field k="spends" v={`${v.spends.amount} ${v.spends.unit} (± decree cost)`} />}
       {v.draws !== undefined && <Field k="draws" v={`${v.draws} card`} />}
@@ -109,10 +104,13 @@ export function Rulebook() {
         <Field k="win" v="first to mandate_target; at max_turns, higher wins (tie → draw)" />
         <Field k="turn order" v="White → Red → … (alternating)" />
         <p className="rb-muted rb-note">
-          A verb is available to a character iff it is their signature, or any of the
-          verb's colours is in their <em>shard</em> (centre + two wheel-wings). Decrees
-          are standing rules that hook every verb; their owner scores per the{" "}
-          <code>score</code> field. Everything below is rendered from the engine data.
+          A character <em>is one colour</em>. It can do a verb iff its colour is among
+          the verb's colour tags. A one-tag verb is reachable by exactly one character
+          (a de-facto signature); a two-adjacent-tag verb is shared by both wheel
+          neighbours. The "shard" is not declared — it <em>emerges</em> as the colours
+          across the verbs a character can reach (centre + wings). Decrees are standing
+          rules that hook every verb; their owner scores per the <code>score</code>{" "}
+          field. Everything below is rendered from the engine data.
         </p>
       </section>
 
@@ -127,11 +125,10 @@ export function Rulebook() {
                   <span className="spec-id">{c.name}</span>
                   <span className="rb-muted">{c.character}</span>
                 </div>
-                <Field k="centre" v={c.centre} />
-                <Field k="shard" v={SHARD[c.id].join(" ")} />
-                <Field k="tier1 scoring" v={c.scoring} />
-                <Field k="tier2 signature" v={c.signature} />
-                <Field k="tier3 shared" v={availableVerbs(c.id).filter((x) => x !== c.signature).join(", ") || "—"} />
+                <Field k="colour" v={c.colour} />
+                <Field k="shard (emergent)" v={shardOf(c.id).join(" ")} />
+                <Field k="scoring" v={c.scoring} />
+                <Field k="verbs" v={verbsFor(c.id).join(", ")} />
                 <Field k="start" v={`hand ${cfg.starting_hand} · supporters ${cfg.starting_supporters} · zealots ${cfg.starting_zealots}`} />
                 <Field k="draw/turn" v={`${cfg.draw_per_turn}${cfg.deck ? ` (${cfg.deck} deck)` : " (no deck)"}`} />
               </div>

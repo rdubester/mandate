@@ -1,6 +1,14 @@
-// Mirrors characters.json from the Python prototype (three-tier character model,
-// two-currency unit economy). Hand-ported. The Python engine is the design source of
-// truth; if this drifts, re-sync against characters.json / the-character-model.md.
+// The model (see the-character-model.md):
+//   A character IS ONE COLOUR. A verb is tagged with one or more colours. A character
+//   can do a verb iff its colour is among the verb's colours. The shard / wing /
+//   signature structure is NOT declared — it EMERGES from how verbs are tagged, and
+//   the tags follow the wheel's adjacency (W–U–B–R–G):
+//     · a verb tagged with ONE colour is reachable by exactly one character — that is
+//       what "signature" means (e.g. enact_decree {W} → only White).
+//     · a verb tagged with TWO ADJACENT colours is a wing/edge verb shared by both
+//       neighbours (e.g. rally_supporters {W,G} → White and Green).
+//   A character's "shard" is just the set of colours appearing across the verbs it can
+//   reach — it comes out as centre + two wings for free.
 
 export const WHITE = "0";
 export const RED = "1";
@@ -11,13 +19,12 @@ export const FACTION_NAME: Record<FactionId, string> = {
   [RED]: "Red — Vanguard",
 };
 
-// Colour tags used by the wheel. A character can take a shared verb if any of the
-// verb's colours is in the character's shard (centre + two wings).
 export type Colour = "W" | "U" | "B" | "R" | "G";
 
-export const SHARD: Record<FactionId, Colour[]> = {
-  [WHITE]: ["G", "W", "U"], // centre W
-  [RED]: ["B", "R", "G"], //   centre R
+// Each character is exactly one colour. (Wheel order: W–U–B–R–G.)
+export const COLOUR: Record<FactionId, Colour> = {
+  [WHITE]: "W",
+  [RED]: "R",
 };
 
 export const CONFIG = {
@@ -32,8 +39,7 @@ export const CONFIG = {
     starting_supporters: 0,
     starting_zealots: 0,
     deck: "decree" as const,
-    tier1_scoring: "decree_bite",
-    tier2_signature: "enact_decree",
+    scoring: "decree_bite",
   },
   red: {
     name: "The Field Marshal",
@@ -42,8 +48,7 @@ export const CONFIG = {
     starting_supporters: 0,
     starting_zealots: 3,
     deck: null,
-    tier1_scoring: "strike_landed",
-    tier2_signature: "muster_zealots",
+    scoring: "strike_landed",
   },
 
   // Two currencies, one per green edge (see unit-economy-edges):
@@ -65,23 +70,57 @@ export const CONFIG = {
   },
 };
 
-// ---- shared (tier-3) verb registry: which colours grant each verb -----------
-// Signature verbs (enact_decree, muster_zealots) are NOT here — granted to their
-// owner only. Availability of a shared verb = (verb.colours ∩ shard) ≠ ∅.
-export const SHARED_VERBS: Record<string, { colours: Colour[] }> = {
-  rally_supporters: { colours: ["G", "W"] },
-  research: { colours: ["U", "B"] },
-  strike: { colours: ["R", "B"] },
-};
+// ---- the verb table: the single source of who-can-do-what --------------------
+// Each verb's `colours` are its wheel tags. A character (one colour) can do a verb
+// iff its colour is in the verb's `colours`. One-colour verbs are de-facto signatures;
+// two-adjacent-colour verbs are shared wing/edge verbs. The effect fields below are
+// exactly what the engine (game.ts) mutates.
 
-export function availableVerbs(f: FactionId): string[] {
-  const shard = new Set(SHARD[f]);
-  const sig = f === WHITE ? CONFIG.white.tier2_signature : CONFIG.red.tier2_signature;
-  const out = [sig];
-  for (const [name, def] of Object.entries(SHARED_VERBS)) {
-    if (def.colours.some((c) => shard.has(c))) out.push(name);
-  }
-  return out;
+export interface VerbSpec {
+  name: string;
+  colours: Colour[];
+  yields?: { unit: "supporters" | "zealots"; amount: number };
+  spends?: { unit: "zealots"; amount: number }; // base cost (before decree deltas)
+  draws?: number;
+  scores?: { who: "self"; amount: number; alsoKnocks?: number };
+}
+
+export const VERBS: VerbSpec[] = [
+  // White's signature: install a standing rule. {W} → White alone.
+  { name: "enact_decree", colours: ["W"] },
+  // White draws from its own (decree) deck. {W} only for now — when Blue arrives this
+  // likely becomes a shared W–U "research" verb (digs both decks); reskin then.
+  { name: "deliberate", colours: ["W"], draws: 1 },
+  // W–G community edge: shared by White and (later) Green. Grows the soft stock.
+  { name: "rally_supporters", colours: ["W", "G"], yields: { unit: "supporters", amount: CONFIG.unit_yield.rally_supporters } },
+  // Red's signature + scoring verb: {R} → Red alone. Spends a zealot, scores on landing.
+  {
+    name: "strike",
+    colours: ["R"],
+    spends: { unit: "zealots", amount: CONFIG.scoring.strike_landed.zealot_cost },
+    scores: {
+      who: "self",
+      amount: CONFIG.scoring.strike_landed.mandate_per_strike,
+      alsoKnocks: CONFIG.scoring.strike_landed.marker_knockback,
+    },
+  },
+  // R–G authenticity edge: shared by Red and (later) Green. Green thus makes BOTH
+  // currencies (it sits on rally's W–G and muster's R–G). Mints the hard flow.
+  { name: "muster_zealots", colours: ["R", "G"], yields: { unit: "zealots", amount: CONFIG.unit_yield.muster_zealots } },
+];
+
+export const VERB_BY_NAME: Record<string, VerbSpec> = Object.fromEntries(
+  VERBS.map((v) => [v.name, v]),
+);
+
+// The whole availability rule: character's colour is among the verb's colours.
+export function canDo(f: FactionId, verbName: string): boolean {
+  const v = VERB_BY_NAME[verbName];
+  return !!v && v.colours.includes(COLOUR[f]);
+}
+
+export function verbsFor(f: FactionId): string[] {
+  return VERBS.filter((v) => v.colours.includes(COLOUR[f])).map((v) => v.name);
 }
 
 // ---- decrees: RULES that hook the verb pipeline (port of decrees.py) ---------
@@ -166,71 +205,16 @@ export const WHITE_DECK_TEMPLATE: string[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// Verb registry for the Rulebook's 1-1 data view. This is STRUCTURAL, not prose:
-// each field below maps to something the engine (game.ts) literally does, so the
-// Rulebook can't drift from the rules. No description strings — the Rulebook
-// renders these fields directly.
+// Per-character facts for the Rulebook. A character is one colour; everything else
+// (which verbs it can do, its emergent shard) is DERIVED via verbsFor() / VERBS, so
+// there is nothing here to drift from the engine.
 
-export interface VerbSpec {
-  name: string;          // engine move name (also the verb id used in availableVerbs)
-  tier: "signature" | "shared";
-  colours: Colour[];     // [] for signature (granted by name, not colour)
-  signatureOf?: FactionId;
-  // structural effect — what the move mutates, in field form:
-  yields?: { unit: "supporters" | "zealots"; amount: number };
-  spends?: { unit: "zealots"; amount: number };  // base cost (before decree deltas)
-  draws?: number;
-  scores?: { who: "self"; amount: number; alsoKnocks?: number };
-}
-
-export const VERBS: VerbSpec[] = [
-  {
-    name: "enact_decree",
-    tier: "signature",
-    colours: [],
-    signatureOf: WHITE,
-  },
-  {
-    name: "muster_zealots",
-    tier: "signature",
-    colours: [],
-    signatureOf: RED,
-    yields: { unit: "zealots", amount: CONFIG.unit_yield.muster_zealots },
-  },
-  {
-    name: "rally_supporters",
-    tier: "shared",
-    colours: SHARED_VERBS.rally_supporters.colours,
-    yields: { unit: "supporters", amount: CONFIG.unit_yield.rally_supporters },
-  },
-  {
-    name: "research",
-    tier: "shared",
-    colours: SHARED_VERBS.research.colours,
-    draws: 1,
-  },
-  {
-    name: "strike",
-    tier: "shared",
-    colours: SHARED_VERBS.strike.colours,
-    spends: { unit: "zealots", amount: CONFIG.scoring.strike_landed.zealot_cost },
-    scores: {
-      who: "self",
-      amount: CONFIG.scoring.strike_landed.mandate_per_strike,
-      alsoKnocks: CONFIG.scoring.strike_landed.marker_knockback,
-    },
-  },
-];
-
-// Per-character structural facts (everything else the Rulebook shows is derived
-// from SHARD / VERBS / CONFIG, so there is nothing prose-y to drift).
 export interface CharacterSpec {
   id: FactionId;
-  name: string;          // The Assembly / The Vanguard — a label, not a rule
-  character: string;     // CONFIG.{white,red}.name
-  centre: Colour;
-  signature: string;     // verb name
-  scoring: string;       // CONFIG tier1 key
+  name: string;        // The Assembly / The Vanguard — a display label, not a rule
+  character: string;   // CONFIG.{white,red}.name
+  colour: Colour;
+  scoring: string;     // CONFIG.{white,red}.scoring key
 }
 
 export const CHARACTERS: CharacterSpec[] = [
@@ -238,16 +222,24 @@ export const CHARACTERS: CharacterSpec[] = [
     id: WHITE,
     name: "The Assembly",
     character: CONFIG.white.name,
-    centre: "W",
-    signature: CONFIG.white.tier2_signature,
-    scoring: CONFIG.white.tier1_scoring,
+    colour: COLOUR[WHITE],
+    scoring: CONFIG.white.scoring,
   },
   {
     id: RED,
     name: "The Vanguard",
     character: CONFIG.red.name,
-    centre: "R",
-    signature: CONFIG.red.tier2_signature,
-    scoring: CONFIG.red.tier1_scoring,
+    colour: COLOUR[RED],
+    scoring: CONFIG.red.scoring,
   },
 ];
+
+// A character's emergent "shard" = the colours appearing across the verbs it can
+// reach. Not declared — computed. Comes out as centre + adjacent wings.
+export function shardOf(f: FactionId): Colour[] {
+  const seen = new Set<Colour>();
+  for (const name of verbsFor(f)) {
+    for (const c of VERB_BY_NAME[name].colours) seen.add(c);
+  }
+  return [...seen];
+}
