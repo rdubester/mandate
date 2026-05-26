@@ -4,21 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Pre-code. The repo currently contains only `the-mandate-design-brief.md` (v3 design doc for a 5-faction card/area board game called *The Mandate*). No source, build, test, or tooling exists yet. The brief itself is the spec; read it before writing anything beyond trivial edits.
+Active prototype. There is **one engine: the TypeScript / boardgame.io app in `gui/`** (the Python prototype that came first has been deleted). The design source of truth is `the-character-model.md` (which has evolved past the original `the-mandate-design-brief.md` — read the character-model doc first, then the brief for §-references). When asked to "build" or change rules, edit `gui/src/config.ts` (data) and `gui/src/game.ts` (logic); see `README.md` for the file map.
 
-When asked to "build" or "prototype", the brief prescribes a specific path — follow it (see *Build path* below) rather than improvising an architecture.
+The brief still governs the locked architecture below — follow it rather than improvising — but note the model has moved on in two ways the brief predates: the **three-tier character model** (scoring rule / signature verb / shared verbs) replaces hardcoded per-faction kits, and the unit economy is **two green-edge currencies** (supporters G–W, zealots G–R; no soldiers). See `the-character-model.md`.
 
 ## What's being built
 
-A **board-game-simulator-lite** (§10 of the brief) for tuning balance parameters. Text/CLI first, no UI. The dominant activity will be parameter sweeps and headless bot-vs-bot games to read win-rate and game-length distributions — design for that, not for human play.
+A **playable prototype + balance sandbox** for *The Mandate*. It is now browser-first (React/boardgame.io hotseat) rather than the CLI/headless-sweep tool the brief's §10 imagined — but the same balance goal drives it: find parameter bands where no faction has a trivially dominant clock.
 
-Hard architectural constraints from §10:
-- **Game state is a plain serializable object** (Mandate positions, per-player board, decks/hands, unit counts, turn pointer, turn count).
-- **Turn loop is a pure function** `(state, action) -> state`. Deterministic, replayable.
-- **Rules are data, not code** — decrees, research cards, and the per-faction action menu live in JSON.
-- **Bots are scripted heuristic policies**, one per faction, so games can run headless in bulk.
-- **Everything is observable/loggable** — a finished game should replay and explain why/how someone won.
-- **Every numeric value is named, editable config from day one** (see *Balance parameters* below). Do not hardcode numbers in rule logic.
+Hard architectural constraints (from §10, still honoured in the TS engine):
+- **Game state is a plain serializable object** (`G`: Mandate, per-player board, decks/hands, unit counts).
+- **Turn loop is a reducer** over `G` (boardgame.io moves) — deterministic, replayable, time-travelable via the debug panel.
+- **Rules lean on data** — decrees, the shared-verb registry, and balance numbers live in `config.ts`, read by the engine; the Rulebook renders from the same data.
+- **Everything is observable/loggable** — `G.log` narrates each game; a finished game explains why someone won.
+- **Every numeric value is named, editable config** (in `config.ts`). Do not hardcode numbers in rule logic.
+- Bots/headless sweeps are **not yet ported** from the dead Python engine — re-add against the TS engine if bulk tuning is needed again.
 
 ## Build path (from §9 — follow in order)
 

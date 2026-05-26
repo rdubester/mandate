@@ -1,5 +1,6 @@
-// Mirrors config.json from the Python prototype. Hand-ported once.
-// If you want them to share a file later, wire vite's JSON import to read ../config.json.
+// Mirrors characters.json from the Python prototype (three-tier character model,
+// two-currency unit economy). Hand-ported. The Python engine is the design source of
+// truth; if this drifts, re-sync against characters.json / the-character-model.md.
 
 export const WHITE = "0";
 export const RED = "1";
@@ -10,36 +11,83 @@ export const FACTION_NAME: Record<FactionId, string> = {
   [RED]: "Red — Vanguard",
 };
 
+// Colour tags used by the wheel. A character can take a shared verb if any of the
+// verb's colours is in the character's shard (centre + two wings).
+export type Colour = "W" | "U" | "B" | "R" | "G";
+
+export const SHARD: Record<FactionId, Colour[]> = {
+  [WHITE]: ["G", "W", "U"], // centre W
+  [RED]: ["B", "R", "G"], //   centre R
+};
+
 export const CONFIG = {
-  mandate_target: 60,
+  mandate_target: 100,
   actions_per_turn: 2,
   max_turns: 200,
 
   white: {
+    name: "The Prime Minister",
     draw_per_turn: 1,
-    starting_hand: 3,
-    starting_soldiers: 0,
+    starting_hand: 1,
     starting_supporters: 0,
-    shard: ["decree", "research", "deploy"] as const,
+    starting_zealots: 0,
+    deck: "decree" as const,
+    tier1_scoring: "decree_bite",
+    tier2_signature: "enact_decree",
   },
   red: {
+    name: "The Field Marshal",
     draw_per_turn: 0,
     starting_hand: 0,
-    starting_soldiers: 3,
     starting_supporters: 0,
-    recruit_per_deploy: 2,
-    shard: ["strike", "deploy", "research"] as const,
+    starting_zealots: 3,
+    deck: null,
+    tier1_scoring: "strike_landed",
+    tier2_signature: "muster_zealots",
   },
 
-  white_scoring: {
-    mandate_per_bite: 2,
+  // Two currencies, one per green edge (see unit-economy-edges):
+  //   supporters = G–W community (soft STOCK, White's edict fuel)
+  //   zealots    = G–R authenticity (hard FLOW, spent on direct actions)
+  // No soldiers. White (GWU) has no R, so it can NEVER muster zealots.
+  unit_yield: {
+    rally_supporters: 1,
+    muster_zealots: 2,
   },
-  red_scoring: {
-    mandate_per_strike: 3,
-    soldier_cost_per_strike: 1,
-    marker_knockback: 2,
+
+  scoring: {
+    decree_bite: { mandate_per_bite: 1 },
+    strike_landed: {
+      mandate_per_strike: 3,
+      zealot_cost: 1,
+      marker_knockback: 2,
+    },
   },
 };
+
+// ---- shared (tier-3) verb registry: which colours grant each verb -----------
+// Signature verbs (enact_decree, muster_zealots) are NOT here — granted to their
+// owner only. Availability of a shared verb = (verb.colours ∩ shard) ≠ ∅.
+export const SHARED_VERBS: Record<string, { colours: Colour[] }> = {
+  rally_supporters: { colours: ["G", "W"] },
+  research: { colours: ["U", "B"] },
+  strike: { colours: ["R", "B"] },
+};
+
+export function availableVerbs(f: FactionId): string[] {
+  const shard = new Set(SHARD[f]);
+  const sig = f === WHITE ? CONFIG.white.tier2_signature : CONFIG.red.tier2_signature;
+  const out = [sig];
+  for (const [name, def] of Object.entries(SHARED_VERBS)) {
+    if (def.colours.some((c) => shard.has(c))) out.push(name);
+  }
+  return out;
+}
+
+// ---- decrees: RULES that hook the verb pipeline (port of decrees.py) ---------
+// A decree may match a verb (+detail), apply an ambient EFFECT (cost/yield delta),
+// OFFER a rider (the 'may' — acting player chooses), and SCORE its owner on
+// compliance (rider taken) or always.
 
 export type DecreeType = "positive" | "negative";
 
@@ -48,116 +96,139 @@ export interface Decree {
   name: string;
   type: DecreeType;
   text: string;
+  trigger: { on: string; detail?: Record<string, string> };
+  effect?: { cost_delta?: number; yield_delta?: number; extra_draw?: number };
+  rider?: { effect: Record<string, number>; describe: string };
+  score?: { when: "compliance" | "always"; amount: number };
 }
 
 export const DECREES: Record<string, Decree> = {
-  tax_levy: {
-    id: "tax_levy",
-    name: "Tax Levy",
-    type: "negative",
-    text: "Bites when opponent has soldiers or Mandate.",
-  },
   civic_endowment: {
     id: "civic_endowment",
     name: "Civic Endowment",
     type: "positive",
-    text: "White draws +1 per turn. Always bites.",
+    text: "When any player draws a card, they may draw +1. If they do, White scores 1.",
+    trigger: { on: "draw" },
+    rider: { effect: { extra_draw: 1 }, describe: "draw +1 card" },
+    score: { when: "compliance", amount: 1 },
+  },
+  academic_census: {
+    id: "academic_census",
+    name: "Academic Census",
+    type: "positive",
+    text: "When a RESEARCH card is drawn, that player may draw +1. If they do, White scores 2.",
+    trigger: { on: "draw", detail: { deck: "research" } },
+    rider: { effect: { extra_draw: 1 }, describe: "draw +1 research card" },
+    score: { when: "compliance", amount: 2 },
+  },
+  open_records: {
+    id: "open_records",
+    name: "Open Records",
+    type: "positive",
+    text: "When any player rallies supporters, they get +1 supporter. White scores 1 each time.",
+    trigger: { on: "rally_supporters" },
+    effect: { yield_delta: 1 },
+    score: { when: "always", amount: 1 },
   },
   martial_restraint: {
     id: "martial_restraint",
     name: "Martial Restraint",
     type: "negative",
-    text: "Red strikes cost +1 soldier. Bites if opp has soldiers.",
+    text: "Ambient: strikes cost +1 zealot. (A tax on the militant G–R edge.)",
+    trigger: { on: "strike" },
+    effect: { cost_delta: 1 },
   },
   writ_of_order: {
     id: "writ_of_order",
     name: "Writ of Order",
     type: "negative",
-    text: "Opponent Deploy yields −1. Bites if opp deployed this turn.",
+    text: "Ambient: mustering zealots yields −1. (A tax on militarization.)",
+    trigger: { on: "muster_zealots" },
+    effect: { yield_delta: -1 },
   },
   public_works: {
     id: "public_works",
     name: "Public Works",
     type: "positive",
-    text: "+1 Mandate on each decree White plays. Bites if White played a decree.",
-  },
-  loyalty_oath: {
-    id: "loyalty_oath",
-    name: "Loyalty Oath",
-    type: "negative",
-    text: "Opp −1 Mandate on Research. Bites if opp researched.",
+    text: "When any player rallies supporters, White scores 1 (no effect on the rally itself).",
+    trigger: { on: "rally_supporters" },
+    score: { when: "always", amount: 1 },
   },
 };
 
 export const WHITE_DECK_TEMPLATE: string[] = [
-  "tax_levy", "tax_levy",
   "civic_endowment", "civic_endowment",
-  "martial_restraint", "martial_restraint",
-  "writ_of_order",
+  "academic_census",
+  "open_records", "open_records",
   "public_works",
-  "loyalty_oath",
+  "martial_restraint",
+  "writ_of_order",
 ];
 
 // -----------------------------------------------------------------------------
-// Rulebook metadata. The Rules tab renders directly from these — so anything
-// here is automatically reflected in-app. Keep the descriptions in sync with
-// the actual code in game.ts.
+// Rulebook metadata. The Rules tab renders directly from these.
 
 export interface MoveSpec {
   id: string;
   name: string;
-  factions: FactionId[];   // who can do it
-  primitive: "decree" | "research" | "deploy" | "strike" | "convert";
-  scoresFor?: FactionId;   // present if this move advances Mandate
-  description: string;     // one-liner
-  details?: string;        // longer if non-trivial
+  factions: FactionId[];
+  tier: "signature" | "shared";
+  colours: string;
+  scoresFor?: FactionId;
+  description: string;
+  details?: string;
 }
 
 export const MOVES: MoveSpec[] = [
   {
-    id: "playDecree",
-    name: "Play Decree",
+    id: "enactDecree",
+    name: "Enact Decree",
     factions: [WHITE],
-    primitive: "decree",
-    description: "White plays a decree from hand into play (permanent, ongoing).",
+    tier: "signature",
+    colours: "W (signature)",
+    description: "White plays a decree from hand into the shared table state (a standing rule).",
     details:
-      "Decrees stay in play and 'bite' at end of White's turn for +Mandate (see scoring). Some decrees also have immediate effects.",
+      "Decrees hook every player's verbs. White scores not by acting, but by skimming Mandate when others live under its rules (comply with a rider, or by an 'always' clause).",
   },
   {
-    id: "deploy",
-    name: "Deploy",
-    factions: [WHITE, RED],
-    primitive: "deploy",
-    description:
-      "Add units to your board. Red: +N soldiers. White: +1 supporter (no use yet).",
-    details: `Red gains ${CONFIG.red.recruit_per_deploy} soldiers per Deploy. Writ of Order (White decree) reduces opponent Deploys by 1.`,
+    id: "musterZealots",
+    name: "Muster Zealots",
+    factions: [RED],
+    tier: "signature",
+    colours: "R (signature, G–R edge)",
+    description: `Red mints zealots (hard flow) — +${CONFIG.unit_yield.muster_zealots} per action.`,
+    details:
+      "Red's unshareable signature. White can never do this: its shard (GWU) has no R, so it cannot touch the G–R edge. Writ of Order taxes this −1.",
+  },
+  {
+    id: "rallySupporters",
+    name: "Rally Supporters",
+    factions: [WHITE],
+    tier: "shared",
+    colours: "G / W edge",
+    description: `Grow supporters (soft stock) — +${CONFIG.unit_yield.rally_supporters} per action.`,
+    details:
+      "Shared on the G–W community edge (White + Green). Open Records boosts it +1 and pays White; Public Works pays White on each rally.",
   },
   {
     id: "research",
     name: "Research",
     factions: [WHITE, RED],
-    primitive: "research",
+    tier: "shared",
+    colours: "U / B edge",
     description: "Draw a card from your deck (placeholder — Blue isn't built yet).",
     details:
-      "MVP stub. White has a deck of decrees, so Research = draw 1 decree. Red has no deck, so Research is a no-op (but still triggers Loyalty Oath).",
+      "MVP stub. White has a decree deck so Research draws 1 decree (and can trigger draw-decrees). Red has no deck, so Research is a no-op.",
   },
   {
-    id: "strikeMandate",
-    name: "Strike Mandate",
+    id: "strike",
+    name: "Strike",
     factions: [RED],
-    primitive: "strike",
+    tier: "shared",
+    colours: "R / B edge",
     scoresFor: RED,
-    description: `Spend soldiers to knock White's Mandate down and score yours up.`,
-    details: `Cost: ${CONFIG.red_scoring.soldier_cost_per_strike} soldier (+1 if Martial Restraint in play). Effect: White −${CONFIG.red_scoring.marker_knockback} Mandate, Red +${CONFIG.red_scoring.mandate_per_strike} Mandate.`,
-  },
-  {
-    id: "strikeDecree",
-    name: "Strike Decree",
-    factions: [RED],
-    primitive: "strike",
-    scoresFor: RED,
-    description: "Spend soldiers to remove a White decree from play and score.",
-    details: `Same cost as Strike Mandate. Removes a chosen decree from White's board and gives Red +${CONFIG.red_scoring.mandate_per_strike} Mandate.`,
+    description: "Spend a zealot to hit White's Mandate or remove a decree, and score.",
+    details: `Cost: ${CONFIG.scoring.strike_landed.zealot_cost} zealot (+1 if Martial Restraint in play). Mandate strike: White −${CONFIG.scoring.strike_landed.marker_knockback}, Red +${CONFIG.scoring.strike_landed.mandate_per_strike}. Decree strike: remove a White decree, Red +${CONFIG.scoring.strike_landed.mandate_per_strike}.`,
   },
 ];
 
@@ -167,7 +238,7 @@ export interface FactionSpec {
   centre: string;
   shard: string;
   archetype: string;
-  primitive: string;
+  signature: string;
   scoringRule: string;
   startingResources: string;
   draw: string;
@@ -179,31 +250,21 @@ export const FACTION_SPECS: FactionSpec[] = [
     name: "The Assembly",
     centre: "White (W)",
     shard: "GWU — green / white / blue",
-    archetype: "Slow interaction (cards)",
-    primitive: "Decrees — permanent ongoing cards (positive or negative)",
-    scoringRule: `Decoupled: each decree in play that "bites" at end of White's turn → +${CONFIG.white_scoring.mandate_per_bite} Mandate. Public Works also fires +1 immediately when White plays a decree.`,
-    startingResources: `Hand: ${CONFIG.white.starting_hand} decrees · Soldiers: ${CONFIG.white.starting_soldiers} · Supporters: ${CONFIG.white.starting_supporters}`,
-    draw: `${CONFIG.white.draw_per_turn} per turn (+1 while Civic Endowment in play)`,
+    archetype: "Slow interaction · structurally non-militant",
+    signature: "Enact Decree — install standing rules on the table",
+    scoringRule: `Decoupled: White scores when others live under its decrees — +1 (or +2) Mandate on compliance / 'always' clauses. It never strikes (no R in shard).`,
+    startingResources: `Hand: ${CONFIG.white.starting_hand} decree · Supporters: ${CONFIG.white.starting_supporters} · Zealots: ${CONFIG.white.starting_zealots} (can't make any)`,
+    draw: `${CONFIG.white.draw_per_turn} per turn (decree deck)`,
   },
   {
     id: RED,
     name: "The Vanguard",
     centre: "Red (R)",
     shard: "BRG — black / red / green",
-    archetype: "Fast interaction (units)",
-    primitive: "Soldiers — flow resource, spent per strike",
-    scoringRule: `Welded: each strike scores +${CONFIG.red_scoring.mandate_per_strike} Mandate. Mandate strikes also knock opponent −${CONFIG.red_scoring.marker_knockback}.`,
-    startingResources: `Hand: ${CONFIG.red.starting_hand} · Soldiers: ${CONFIG.red.starting_soldiers} · Supporters: ${CONFIG.red.starting_supporters}`,
+    archetype: "Fast interaction · militant",
+    signature: "Muster Zealots — mint the hard flow it spends on strikes",
+    scoringRule: `Welded: each strike scores +${CONFIG.scoring.strike_landed.mandate_per_strike} Mandate immediately. Mandate strikes also knock White −${CONFIG.scoring.strike_landed.marker_knockback}.`,
+    startingResources: `Hand: ${CONFIG.red.starting_hand} · Supporters: ${CONFIG.red.starting_supporters} · Zealots: ${CONFIG.red.starting_zealots}`,
     draw: `${CONFIG.red.draw_per_turn} per turn (no deck currently)`,
   },
 ];
-
-// Bite-trigger descriptions for the Rulebook. Must match decreeBites() in game.ts.
-export const DECREE_BITE_RULES: Record<string, string> = {
-  tax_levy: "Bites whenever opponent has soldiers OR has Mandate to lose.",
-  civic_endowment: "Always bites. (Bonus: while in play, White draws +1 per turn.)",
-  martial_restraint: "Bites if opponent has soldiers. (Also: Red's strikes cost +1 soldier.)",
-  writ_of_order: "Bites if opponent Deployed this turn. (Also: opponent Deploys yield −1.)",
-  public_works: "Bites if White played a decree this turn. (Also: +1 Mandate immediately on each White decree play.)",
-  loyalty_oath: "Bites if opponent Researched this turn. (Also: opponent loses 1 Mandate when they Research.)",
-};

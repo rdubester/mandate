@@ -1,53 +1,65 @@
 # The Mandate — playable MVP
 
-Tiny Python CLI prototype for fast balance iteration. White (Assembly) vs. Red (Vanguard), per the design brief's recommended build path. No deps, no UI.
+A browser prototype for fast balance iteration on *The Mandate*, a 5-faction colour-wheel
+board game. Currently **White (Assembly) vs. Red (Vanguard)**, per the design brief's
+recommended build path. Built on [boardgame.io](https://boardgame.io) (React + TypeScript).
+
+The design source of truth is `the-character-model.md`; this app is the only engine.
 
 ## Run
-
-```sh
-python3 cli.py play                # you (white) vs bot (red)
-python3 cli.py play --human red    # play red instead
-python3 cli.py auto                # bot vs bot, full log
-python3 cli.py --quiet auto        # bot vs bot, summary only
-python3 cli.py batch -n 500        # 500-game sweep, win-rate + game-length
-python3 cli.py batch -n 500 --csv runs.csv   # also dump per-game CSV
-python3 cli.py --seed 42 auto      # deterministic replay
-```
-
-Flags (`--config`, `--seed`, `--quiet`) go **before** the subcommand.
-
-## Files
-
-- `config.json` — every balance number. Edit, re-run, no code changes.
-- `engine.py` — pure `apply(state, action, config) -> state`. Never prints.
-- `bots.py` — scripted policies. Add new ones, register in `POLICIES`, name them in `config.bots`.
-- `cli.py` — I/O, interactive prompt, batch runner.
-
-## Tuning loop
-
-The brief's "first measurable question" (§10): find a parameter band where neither White nor Red has a trivially dominant clock.
-
-1. `python3 cli.py --quiet --seed 1 batch -n 200` — read win-rate.
-2. Edit `config.json` (e.g. lower `red_scoring.mandate_per_strike`, raise `white_scoring.mandate_per_bite`, change `mandate_target`).
-3. Repeat.
-
-Current defaults: Red wins ~100% — White runs out of cards and has no engine. Real tuning starts here.
-
-## GUI (boardgame.io + React)
 
 ```sh
 cd gui
 npm install        # first time only
 npm run dev        # opens http://localhost:5173
+npm run build      # typecheck + production build
 ```
 
-Hotseat in one tab: switch the **seat** toggle (White / Red) to whichever side is "to act," then click moves. The boardgame.io debug panel docks on the right of the screen — lets you inspect `G`, time-travel, and call moves directly.
+Hotseat in one tab: switch the **seat** toggle (White / Red) to whichever side is "to act,"
+then click moves. The boardgame.io debug panel docks on the right — inspect `G`, time-travel,
+and call moves directly. The **Rulebook** tab renders live from the config data.
 
-The GUI is a **separate reimplementation** in TypeScript (`gui/src/game.ts`) — boardgame.io can't run Python. Rules and config values are hand-ported from `engine.py` / `config.json`. If you tune balance numbers, edit them in **both** `config.json` (Python CLI sweeps) and `gui/src/config.ts` (GUI). Worth merging later if the prototype sticks.
+## Files (`gui/src/`)
+
+- `config.ts` — **every balance number, plus the data model**: the two characters, their
+  shards, the shared-verb registry (which colours grant each verb), and the decree set. Edit
+  this to tune; the Rulebook re-renders from it. This is the single source of balance truth.
+- `game.ts` — the engine: the boardgame.io `Game` (setup / moves / turn hooks / win check).
+  Pure-ish reducer over state `G`. Contains the decree **hook pipeline** (`fireDecrees`) and
+  the two unit verbs (`rallySupporters`, `musterZealots`).
+- `Board.tsx` — the play view. Action buttons are gated by `availableVerbs(faction)`.
+- `Rulebook.tsx` — renders the rules from `config.ts` (no separate doc to keep in sync).
+- `App.tsx` — tab switcher (Board / Rulebook) + seat toggle.
+
+## The model (three tiers)
+
+Each faction is a character with: **(1) a scoring rule** (how it wins, unique), **(2) a
+signature verb** (only it can do, unshareable), **(3) shared verbs** (a common pool, granted
+when the verb's colours overlap the character's *shard* = centre + two wheel-wings).
+
+Units are two currencies, one per green wheel-edge:
+- **supporters** (G–W community, soft *stock*) — White's edict fuel, grown by `rally_supporters`.
+- **zealots** (G–R authenticity, hard *flow*) — Red's ammunition, minted by `muster_zealots`,
+  spent by `strike`.
+
+White's shard (GWU) has no R, so it is **structurally non-militant** — it can never muster
+zealots or strike. **Decrees** are standing rules White installs that hook every player's
+verbs; White scores by skimming Mandate when others comply with its rules (legitimacy), not
+by acting itself.
+
+## Tuning loop
+
+The brief's "first measurable question" (§10): find a parameter band where neither White nor
+Red has a trivially dominant clock. Edit numbers in `config.ts` (e.g.
+`scoring.strike_landed.mandate_per_strike`, `scoring.decree_bite`, `mandate_target`), reload,
+and play / watch. Currently Red has the dominant clock — White runs out of decrees and has no
+standing engine; real tuning starts here.
 
 ## What's intentionally minimal
 
-- 6 decree types; cards are id strings, no fancy card objects.
-- Research is a placeholder draw (Blue isn't in the prototype yet, per build path).
-- No Green/Blue/Black yet. `engine.apply` is the only place to plumb new actions when they arrive.
-- Decree trigger logic is inline in `engine._decree_bites` — move to data later if it stays simple, or to per-decree handlers if rules get richer.
+- 6 decrees; cards are id strings, no card objects.
+- Research is a placeholder draw (Blue / the Archive isn't built yet, per build path).
+- No Green / Blue / Black yet. Adding a faction = a character + verbs in `config.ts`, plumbed
+  in `game.ts`.
+- Compliance is greedy (every beneficial rider is taken); smarter policies are a hook in
+  `game.ts` (`wantsRider`).

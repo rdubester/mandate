@@ -1,17 +1,25 @@
 import type { Game, Move } from "boardgame.io";
 import { INVALID_MOVE } from "boardgame.io/core";
-import { CONFIG, WHITE, RED, WHITE_DECK_TEMPLATE, type FactionId } from "./config";
+import {
+  CONFIG,
+  DECREES,
+  WHITE,
+  RED,
+  WHITE_DECK_TEMPLATE,
+  availableVerbs,
+  type FactionId,
+} from "./config";
 
 // G — the shared game state. boardgame.io uses immer; mutate in place.
 export interface PlayerState {
   hand: string[];
   deck: string[];
   decreesInPlay: string[];
-  soldiers: number;
   supporters: number;
+  zealots: number;
   playedDecreeThisTurn: boolean;
   playedResearchThisTurn: boolean;
-  deployedThisTurn: boolean;
+  actedUnitThisTurn: boolean;
 }
 
 export interface GameState {
@@ -28,11 +36,11 @@ function emptyPlayer(): PlayerState {
     hand: [],
     deck: [],
     decreesInPlay: [],
-    soldiers: 0,
     supporters: 0,
+    zealots: 0,
     playedDecreeThisTurn: false,
     playedResearchThisTurn: false,
-    deployedThisTurn: false,
+    actedUnitThisTurn: false,
   };
 }
 
@@ -40,114 +48,215 @@ function opponentOf(p: FactionId): FactionId {
   return p === WHITE ? RED : WHITE;
 }
 
-// Decree bite predicates — port of engine._decree_bites.
-function decreeBites(id: string, G: GameState, opp: FactionId): boolean {
-  const o = G[opp === WHITE ? "white" : "red"];
-  const w = G.white;
-  switch (id) {
-    case "tax_levy":
-      return o.soldiers > 0 || G.mandate[opp] > 0;
-    case "civic_endowment":
-      return true;
-    case "martial_restraint":
-      return o.soldiers > 0;
-    case "writ_of_order":
-      return o.deployedThisTurn;
-    case "public_works":
-      return w.playedDecreeThisTurn;
-    case "loyalty_oath":
-      return o.playedResearchThisTurn;
-    default:
-      return false;
-  }
-}
-
 function playerKey(id: FactionId): "white" | "red" {
   return id === WHITE ? "white" : "red";
 }
 
+// ---- decree hook pipeline (port of decrees.fire) ---------------------------
+// Run every installed decree against a verb event taken by `player`. Returns the
+// modifiers the verb reads, and applies Mandate payouts to decree owners as a
+// side effect. detail carries verb-specific data (e.g. {deck: "research"}).
+
+interface DecreeMods {
+  cost_delta: number;
+  extra_draw: number;
+  yield_delta: number;
+}
+
+function allDecreesInPlay(G: GameState): Array<{ owner: FactionId; id: string }> {
+  const out: Array<{ owner: FactionId; id: string }> = [];
+  for (const owner of [WHITE, RED] as const) {
+    for (const id of G[playerKey(owner)].decreesInPlay) out.push({ owner, id });
+  }
+  return out;
+}
+
+function matches(
+  trigger: { on: string; detail?: Record<string, string> },
+  verb: string,
+  detail: Record<string, string>,
+): boolean {
+  if (trigger.on !== verb) return false;
+  if (!trigger.detail) return true;
+  return Object.entries(trigger.detail).every(([k, v]) => detail[k] === v);
+}
+
+// Compliance policy: the acting player decides whether to take an offered rider.
+// Default greedy-accept (matches the Python default), so the choice point exists
+// but current play takes every beneficial rider. Hook for smarter policies later.
+function wantsRider(): boolean {
+  return true;
+}
+
+function fireDecrees(
+  G: GameState,
+  verb: string,
+  player: FactionId,
+  detail: Record<string, string>,
+): DecreeMods {
+  const mods: DecreeMods = { cost_delta: 0, extra_draw: 0, yield_delta: 0 };
+
+  for (const { owner, id } of allDecreesInPlay(G)) {
+    const spec = DECREES[id];
+    if (!spec || !matches(spec.trigger, verb, detail)) continue;
+
+    // Ambient effect (no choice).
+    if (spec.effect) {
+      for (const [k, v] of Object.entries(spec.effect)) {
+        mods[k as keyof DecreeMods] += v as number;
+      }
+    }
+
+    // Rider (the 'may'): offer to the acting player.
+    let complied = false;
+    if (spec.rider && wantsRider()) {
+      complied = true;
+      for (const [k, v] of Object.entries(spec.rider.effect)) {
+        mods[k as keyof DecreeMods] += v;
+      }
+    }
+
+    // Scoring: owner skims Mandate.
+    if (spec.score) {
+      const { when, amount } = spec.score;
+      const pay = (when === "compliance" && complied) || when === "always";
+      if (pay && amount) {
+        G.mandate[owner] += amount;
+        G.log.push(
+          `  · decree '${id}' (${when}): ${playerKey(owner)} +${amount} Mandate` +
+            (complied ? ` [${playerKey(player)} complied]` : ""),
+        );
+      }
+    }
+  }
+  return mods;
+}
+
+// Centralized draw: fires the on-draw hook per card so 'when a player draws...'
+// decrees work for both research and the upkeep draw. Returns count drawn.
+function drawCards(
+  G: GameState,
+  player: FactionId,
+  base: number,
+  deckKind: string,
+): number {
+  const p = G[playerKey(player)];
+  let drawn = 0;
+  for (let i = 0; i < base; i++) {
+    if (p.deck.length === 0) break;
+    const mods = fireDecrees(G, "draw", player, { deck: deckKind });
+    p.hand.push(p.deck.shift()!);
+    drawn += 1;
+    let extra = mods.extra_draw;
+    while (extra > 0 && p.deck.length > 0) {
+      p.hand.push(p.deck.shift()!);
+      drawn += 1;
+      extra -= 1;
+    }
+  }
+  return drawn;
+}
+
+function strikeCost(G: GameState): number {
+  let delta = 0;
+  for (const { id } of allDecreesInPlay(G)) {
+    const spec = DECREES[id];
+    if (spec?.trigger.on === "strike") delta += spec.effect?.cost_delta ?? 0;
+  }
+  return CONFIG.scoring.strike_landed.zealot_cost + delta;
+}
+
+// Guard shared by every move: right player, their turn, verb in their menu.
+function canAct(player: string, ctx: { currentPlayer: string }, verb: string): boolean {
+  return (
+    player === ctx.currentPlayer &&
+    availableVerbs(player as FactionId).includes(verb)
+  );
+}
+
 // ---- moves -----------------------------------------------------------------
 
-const playDecree: Move<GameState> = ({ G, playerID, ctx }, cardId: string) => {
-  if (playerID !== WHITE) return INVALID_MOVE;
-  if (ctx.currentPlayer !== WHITE) return INVALID_MOVE;
-  const p = G.white;
+const enactDecree: Move<GameState> = ({ G, playerID, ctx }, cardId: string) => {
+  if (!playerID || !canAct(playerID, ctx, "enact_decree")) return INVALID_MOVE;
+  const p = G[playerKey(playerID as FactionId)];
   const idx = p.hand.indexOf(cardId);
   if (idx === -1) return INVALID_MOVE;
   p.hand.splice(idx, 1);
   p.decreesInPlay.push(cardId);
   p.playedDecreeThisTurn = true;
-  G.log.push(`white plays decree '${cardId}'`);
-  if (p.decreesInPlay.includes("public_works")) {
-    G.mandate[WHITE] += 1;
-    G.log.push("  └ public_works fires: +1 Mandate");
-  }
+  G.log.push(`${playerKey(playerID as FactionId)} enacts decree '${cardId}'`);
 };
 
-const deploy: Move<GameState> = ({ G, playerID, ctx }) => {
-  if (playerID !== ctx.currentPlayer) return INVALID_MOVE;
-  const me = playerID as FactionId;
-  const key = playerKey(me);
-  const p = G[key];
-  p.deployedThisTurn = true;
-  const oppHasWrit = G.white.decreesInPlay.includes("writ_of_order");
-  if (me === RED) {
-    let n = CONFIG.red.recruit_per_deploy;
-    if (oppHasWrit) n = Math.max(0, n - 1);
-    p.soldiers += n;
-    G.log.push(`red deploys: +${n} soldier(s)`);
-  } else {
-    let n = 1;
-    // White has writ_of_order itself (if in play), but the bite-rule says
-    // "opponents' Deploy yields -1". So White's own deploys are unaffected.
-    if (G.red.decreesInPlay.includes("writ_of_order")) n = Math.max(0, n - 1);
-    p.supporters += n;
-    G.log.push(`white deploys: +${n} supporter(s)`);
-  }
+function growUnits(
+  G: GameState,
+  player: FactionId,
+  verb: "rally_supporters" | "muster_zealots",
+  unit: "supporters" | "zealots",
+): void {
+  const base = CONFIG.unit_yield[verb];
+  const mods = fireDecrees(G, verb, player, { unit });
+  const n = Math.max(0, base + mods.yield_delta);
+  const p = G[playerKey(player)];
+  p[unit] += n;
+  p.actedUnitThisTurn = true;
+  G.log.push(`${playerKey(player)} ${verb}: +${n} ${unit}`);
+}
+
+const rallySupporters: Move<GameState> = ({ G, playerID, ctx }) => {
+  if (!playerID || !canAct(playerID, ctx, "rally_supporters")) return INVALID_MOVE;
+  growUnits(G, playerID as FactionId, "rally_supporters", "supporters");
+};
+
+const musterZealots: Move<GameState> = ({ G, playerID, ctx }) => {
+  if (!playerID || !canAct(playerID, ctx, "muster_zealots")) return INVALID_MOVE;
+  growUnits(G, playerID as FactionId, "muster_zealots", "zealots");
 };
 
 const research: Move<GameState> = ({ G, playerID, ctx }) => {
-  if (playerID !== ctx.currentPlayer) return INVALID_MOVE;
+  if (!playerID || !canAct(playerID, ctx, "research")) return INVALID_MOVE;
   const me = playerID as FactionId;
   const p = G[playerKey(me)];
   p.playedResearchThisTurn = true;
-  if (p.deck.length > 0) {
-    const card = p.deck.shift()!;
-    p.hand.push(card);
-    G.log.push(`${playerKey(me)} researches: draws '${card}'`);
-  } else {
+  if (p.deck.length === 0) {
     G.log.push(`${playerKey(me)} researches (no deck)`);
+    return;
   }
+  const n = drawCards(G, me, 1, "research");
+  G.log.push(`${playerKey(me)} researches: drew ${n}`);
 };
 
 const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
-  if (playerID !== RED) return INVALID_MOVE;
-  if (ctx.currentPlayer !== RED) return INVALID_MOVE;
-  let cost = CONFIG.red_scoring.soldier_cost_per_strike;
-  if (G.white.decreesInPlay.includes("martial_restraint")) cost += 1;
-  if (G.red.soldiers < cost) return INVALID_MOVE;
-  G.red.soldiers -= cost;
-  const kb = CONFIG.red_scoring.marker_knockback;
-  G.mandate[WHITE] = Math.max(0, G.mandate[WHITE] - kb);
-  G.mandate[RED] += CONFIG.red_scoring.mandate_per_strike;
+  if (!playerID || !canAct(playerID, ctx, "strike")) return INVALID_MOVE;
+  const me = playerID as FactionId;
+  const opp = opponentOf(me);
+  const mods = fireDecrees(G, "strike", me, { target: "mandate" });
+  const cost = Math.max(0, CONFIG.scoring.strike_landed.zealot_cost + mods.cost_delta);
+  const p = G[playerKey(me)];
+  if (p.zealots < cost) return INVALID_MOVE;
+  p.zealots -= cost;
+  const sc = CONFIG.scoring.strike_landed;
+  G.mandate[opp] = Math.max(0, G.mandate[opp] - sc.marker_knockback);
+  G.mandate[me] += sc.mandate_per_strike;
   G.log.push(
-    `red strikes white's Mandate: −${kb} to white, +${CONFIG.red_scoring.mandate_per_strike} to red`,
+    `${playerKey(me)} strikes ${playerKey(opp)}'s Mandate: −${sc.marker_knockback} to ${playerKey(opp)}, +${sc.mandate_per_strike} to ${playerKey(me)}`,
   );
 };
 
 const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) => {
-  if (playerID !== RED) return INVALID_MOVE;
-  if (ctx.currentPlayer !== RED) return INVALID_MOVE;
-  let cost = CONFIG.red_scoring.soldier_cost_per_strike;
-  if (G.white.decreesInPlay.includes("martial_restraint")) cost += 1;
-  if (G.red.soldiers < cost) return INVALID_MOVE;
-  const idx = G.white.decreesInPlay.indexOf(decreeId);
+  if (!playerID || !canAct(playerID, ctx, "strike")) return INVALID_MOVE;
+  const me = playerID as FactionId;
+  const opp = opponentOf(me);
+  const mods = fireDecrees(G, "strike", me, { target: "decree" });
+  const cost = Math.max(0, CONFIG.scoring.strike_landed.zealot_cost + mods.cost_delta);
+  const p = G[playerKey(me)];
+  if (p.zealots < cost) return INVALID_MOVE;
+  const idx = G[playerKey(opp)].decreesInPlay.indexOf(decreeId);
   if (idx === -1) return INVALID_MOVE;
-  G.red.soldiers -= cost;
-  G.white.decreesInPlay.splice(idx, 1);
-  G.mandate[RED] += CONFIG.red_scoring.mandate_per_strike;
+  p.zealots -= cost;
+  G[playerKey(opp)].decreesInPlay.splice(idx, 1);
+  G.mandate[me] += CONFIG.scoring.strike_landed.mandate_per_strike;
   G.log.push(
-    `red strikes decree '${decreeId}' off white's board: +${CONFIG.red_scoring.mandate_per_strike} Mandate`,
+    `${playerKey(me)} strikes decree '${decreeId}' off ${playerKey(opp)}'s board: +${CONFIG.scoring.strike_landed.mandate_per_strike} Mandate`,
   );
 };
 
@@ -157,46 +266,18 @@ function resetTurnFlags(G: GameState): void {
   for (const k of ["white", "red"] as const) {
     G[k].playedDecreeThisTurn = false;
     G[k].playedResearchThisTurn = false;
-    G[k].deployedThisTurn = false;
+    G[k].actedUnitThisTurn = false;
   }
 }
 
-function resolveWhiteEndOfTurn(G: GameState): void {
-  // Decree bites — only at end of White's turn (mirrors engine.py).
-  const opp = RED;
-  const score = CONFIG.white_scoring.mandate_per_bite;
-  let bites = 0;
-  for (const did of G.white.decreesInPlay) {
-    if (decreeBites(did, G, opp)) {
-      bites += 1;
-      G.log.push(`  · decree '${did}' bites: +${score} Mandate to white`);
-    }
-  }
-  G.mandate[WHITE] += bites * score;
-}
-
-function resolveRedEndOfTurn(G: GameState): void {
-  // loyalty_oath punishes opponent (red) for researching during red's turn.
-  if (
-    G.white.decreesInPlay.includes("loyalty_oath") &&
-    G.red.playedResearchThisTurn
-  ) {
-    G.mandate[RED] = Math.max(0, G.mandate[RED] - 1);
-    G.log.push("  · loyalty_oath punishes red: −1 Mandate");
-  }
-}
-
+// Upkeep draw routes through the hook-aware draw so 'when a player draws' decrees
+// fire on the upkeep draw too. White's deck is decrees (deck kind 'decree').
 function upkeepDraw(G: GameState, next: FactionId): void {
-  const key = playerKey(next);
-  const p = G[key];
-  let n = next === WHITE ? CONFIG.white.draw_per_turn : CONFIG.red.draw_per_turn;
-  if (next === WHITE && G.white.decreesInPlay.includes("civic_endowment")) n += 1;
-  let drawn = 0;
-  while (drawn < n && p.deck.length > 0) {
-    p.hand.push(p.deck.shift()!);
-    drawn += 1;
-  }
-  if (drawn > 0) G.log.push(`  · ${key} draws ${drawn}`);
+  const n = next === WHITE ? CONFIG.white.draw_per_turn : CONFIG.red.draw_per_turn;
+  if (n <= 0 || G[playerKey(next)].deck.length === 0) return;
+  const deckKind = next === WHITE ? "decree" : "other";
+  const drawn = drawCards(G, next, n, deckKind);
+  if (drawn > 0) G.log.push(`  · ${playerKey(next)} draws ${drawn}`);
 }
 
 // ---- game ------------------------------------------------------------------
@@ -216,26 +297,21 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
 export const MandateGame: Game<GameState> = {
   name: "the-mandate",
 
-  setup: ({ ctx, random }) => {
-    // boardgame.io provides `random` for replayable RNG; fall back to a stable
-    // seed if it isn't available (shouldn't happen in normal Client setup).
+  setup: ({ random }) => {
     const seed = random ? Math.floor(random.Number() * 1e9) : 12345;
     const deck = seededShuffle(WHITE_DECK_TEMPLATE, seed);
     const starting = CONFIG.white.starting_hand;
-    const whiteHand = deck.slice(0, starting);
-    const whiteDeck = deck.slice(starting);
 
     const white = emptyPlayer();
-    white.hand = whiteHand;
-    white.deck = whiteDeck;
-    white.soldiers = CONFIG.white.starting_soldiers;
+    white.hand = deck.slice(0, starting);
+    white.deck = deck.slice(starting);
     white.supporters = CONFIG.white.starting_supporters;
+    white.zealots = CONFIG.white.starting_zealots;
 
     const red = emptyPlayer();
-    red.soldiers = CONFIG.red.starting_soldiers;
     red.supporters = CONFIG.red.starting_supporters;
+    red.zealots = CONFIG.red.starting_zealots;
 
-    void ctx; // unused
     return {
       mandate: { [WHITE]: 0, [RED]: 0 },
       white,
@@ -248,19 +324,19 @@ export const MandateGame: Game<GameState> = {
     minMoves: CONFIG.actions_per_turn,
     maxMoves: CONFIG.actions_per_turn,
     onEnd: ({ G, ctx }) => {
-      const ending = ctx.currentPlayer as FactionId;
-      if (ending === WHITE) resolveWhiteEndOfTurn(G);
-      else resolveRedEndOfTurn(G);
+      // No decree-scoring pass here — decrees score live, via the verb hooks,
+      // when players act under the rules. End of turn just resets and hands off.
       resetTurnFlags(G);
-      const next = opponentOf(ending);
+      const next = opponentOf(ctx.currentPlayer as FactionId);
       upkeepDraw(G, next);
       G.log.push(`--- turn ${ctx.turn + 1}, ${playerKey(next)} to act ---`);
     },
   },
 
   moves: {
-    playDecree,
-    deploy,
+    enactDecree,
+    rallySupporters,
+    musterZealots,
     research,
     strikeMandate,
     strikeDecree,
@@ -282,3 +358,6 @@ export const MandateGame: Game<GameState> = {
     }
   },
 };
+
+// Re-exported for the board UI (preview strike cost / availability).
+export { strikeCost, availableVerbs };

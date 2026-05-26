@@ -1,5 +1,5 @@
 import type { BoardProps } from "boardgame.io/react";
-import type { GameState } from "./game";
+import { strikeCost, availableVerbs, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
 
 type Props = BoardProps<GameState>;
@@ -37,11 +37,9 @@ export function MandateBoard(props: Props) {
   const { G, ctx, moves } = props;
   const active = ctx.currentPlayer as FactionId;
   const gameOver = ctx.gameover;
-
-  const strikeCost =
-    CONFIG.red_scoring.soldier_cost_per_strike +
-    (G.white.decreesInPlay.includes("martial_restraint") ? 1 : 0);
-  const canStrike = G.red.soldiers >= strikeCost;
+  const canStrike = G.red.zealots >= strikeCost(G);
+  const whiteVerbs = availableVerbs(WHITE);
+  const redVerbs = availableVerbs(RED);
 
   return (
     <div className="board">
@@ -87,7 +85,8 @@ export function MandateBoard(props: Props) {
       <section className={`faction-panel ${active === WHITE ? "active" : ""}`}>
         <h2>White — Assembly</h2>
         <div className="resources">
-          deck: {G.white.deck.length} · supporters: {G.white.supporters}
+          deck: {G.white.deck.length} · supporters: {G.white.supporters} · zealots:{" "}
+          {G.white.zealots} <span className="rb-muted">(can't make any)</span>
         </div>
 
         <div className="row">
@@ -98,8 +97,8 @@ export function MandateBoard(props: Props) {
                 <DecreeCard
                   key={i}
                   id={id}
-                  onClick={active === WHITE && !gameOver ? () => moves.playDecree(id) : undefined}
-                  label={active === WHITE ? "play" : undefined}
+                  onClick={active === WHITE && !gameOver ? () => moves.enactDecree(id) : undefined}
+                  label={active === WHITE ? "enact" : undefined}
                 />
               ))}
               {G.white.hand.length === 0 && <em>empty</em>}
@@ -118,8 +117,14 @@ export function MandateBoard(props: Props) {
 
         {active === WHITE && !gameOver && (
           <div className="action-bar">
-            <button onClick={() => moves.deploy()}>Deploy (+1 supporter)</button>
-            <button onClick={() => moves.research()}>Research (draw 1)</button>
+            {whiteVerbs.includes("rally_supporters") && (
+              <button onClick={() => moves.rallySupporters()}>
+                Rally Supporters (+{CONFIG.unit_yield.rally_supporters})
+              </button>
+            )}
+            {whiteVerbs.includes("research") && (
+              <button onClick={() => moves.research()}>Research (draw 1)</button>
+            )}
           </div>
         )}
       </section>
@@ -127,22 +132,30 @@ export function MandateBoard(props: Props) {
       {/* RED panel */}
       <section className={`faction-panel ${active === RED ? "active" : ""}`}>
         <h2>Red — Vanguard</h2>
-        <div className="resources">soldiers: {G.red.soldiers}</div>
+        <div className="resources">
+          zealots: {G.red.zealots} · supporters: {G.red.supporters}
+        </div>
 
         {active === RED && !gameOver && (
           <div className="action-bar">
-            <button onClick={() => moves.deploy()}>
-              Deploy (+{CONFIG.red.recruit_per_deploy} soldiers)
-            </button>
-            <button onClick={() => moves.research()}>Research</button>
-            <button
-              disabled={!canStrike}
-              onClick={() => moves.strikeMandate()}
-              title={`cost: ${strikeCost} soldier(s)`}
-            >
-              Strike White's Mandate (cost {strikeCost})
-            </button>
-            {G.white.decreesInPlay.length > 0 && (
+            {redVerbs.includes("muster_zealots") && (
+              <button onClick={() => moves.musterZealots()}>
+                Muster Zealots (+{CONFIG.unit_yield.muster_zealots})
+              </button>
+            )}
+            {redVerbs.includes("research") && (
+              <button onClick={() => moves.research()}>Research</button>
+            )}
+            {redVerbs.includes("strike") && (
+              <button
+                disabled={!canStrike}
+                onClick={() => moves.strikeMandate()}
+                title={`cost: ${strikeCost(G)} zealot(s)`}
+              >
+                Strike White's Mandate (cost {strikeCost(G)})
+              </button>
+            )}
+            {redVerbs.includes("strike") && G.white.decreesInPlay.length > 0 && (
               <div className="strike-decree-group">
                 <span>Strike a decree:</span>
                 {G.white.decreesInPlay.map((id, i) => (
