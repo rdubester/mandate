@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Active prototype. There is **one engine: the TypeScript / boardgame.io app in `gui/`** (the Python prototype that came first has been deleted). The design source of truth is `the-character-model.md` (which has evolved past the original `the-mandate-design-brief.md` — read the character-model doc first, then the brief for §-references). When asked to "build" or change rules, edit `gui/src/config.ts` (data) and `gui/src/game.ts` (logic); see `README.md` for the file map.
 
-The brief still governs the locked architecture below — follow it rather than improvising — but note the model has moved on in two ways the brief predates: the **three-tier character model** (scoring rule / signature verb / shared verbs) replaces hardcoded per-faction kits, and the unit economy is **two green-edge currencies** (supporters G–W, zealots G–R; no soldiers). See `the-character-model.md`.
+The brief still governs the locked architecture below — follow it rather than improvising — but the model has moved on in ways the brief predates. The current model (see `the-character-model.md`): **a character is one colour; a verb is tagged with one or more colours; a character can do a verb iff its colour is among the tags** (`canDo` in `config.ts`). Shard / signature / wing all *emerge* from the verb tags (which follow wheel adjacency) — none are declared. One-colour verb = de-facto signature; two-adjacent-colour verb = shared wing. The unit economy is **two green-edge currencies** (supporters G–W via `rally_supporters`, zealots G–R via `muster_zealots`; no soldiers). Do NOT reintroduce `if colour == X` branches, declared shards, or a "signature" flag — those were all removed in favour of colour-tagged verb rows.
 
 ## What's being built
 
@@ -15,10 +15,10 @@ A **playable prototype + balance sandbox** for *The Mandate*. It is now browser-
 Hard architectural constraints (from §10, still honoured in the TS engine):
 - **Game state is a plain serializable object** (`G`: Mandate, per-player board, decks/hands, unit counts).
 - **Turn loop is a reducer** over `G` (boardgame.io moves) — deterministic, replayable, time-travelable via the debug panel.
-- **Rules lean on data** — decrees, the shared-verb registry, and balance numbers live in `config.ts`, read by the engine; the Rulebook renders from the same data.
+- **Rules lean on data** — decrees, the colour-tagged verb table, and balance numbers live in `config.ts`, read by the engine; the Rulebook renders from the same data.
 - **Everything is observable/loggable** — `G.log` narrates each game; a finished game explains why someone won.
 - **Every numeric value is named, editable config** (in `config.ts`). Do not hardcode numbers in rule logic.
-- Bots/headless sweeps are **not yet ported** from the dead Python engine — re-add against the TS engine if bulk tuning is needed again.
+- **Headless harness exists** in `gui/sim/`: `npm run sim` (bot-vs-bot win-rate/length sweep) and `npm test` (vitest regression suite pinning model invariants). Both drive the real `game.ts` via boardgame.io's headless `Client` — no reimplementation. Run `npm test` after any engine/model change.
 
 ## Build path (from §9 — follow in order)
 
