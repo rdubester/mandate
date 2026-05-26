@@ -62,6 +62,45 @@ body {
 .rb-block ul { margin: 6px 0; padding-left: 20px; }
 .rb-muted { color: var(--muted); }
 .rb-detail { font-size: 12px; margin-top: 4px; }
+.rb-note { font-size: 12px; margin-top: 10px; line-height: 1.5; }
+
+/* 1-1 structural data view (spec look) */
+.spec-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.spec-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 3px;
+  padding: 8px 10px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.spec-card.positive { border-left-color: #6c9b6c; }
+.spec-card.negative { border-left-color: #b85a4a; }
+.spec-card.white-edge { border-left-color: var(--white-fac); }
+.spec-card.red-edge { border-left-color: var(--red-fac); }
+.spec-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.spec-id { font-weight: bold; color: var(--ink); }
+.spec-field { display: flex; gap: 8px; line-height: 1.6; }
+.spec-key {
+  color: var(--muted);
+  min-width: 84px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.spec-val { color: var(--ink); word-break: break-word; }
+.spec-meta { font-size: 11px; margin: 2px 0 0 4px; }
 
 .rb-grid {
   display: grid;

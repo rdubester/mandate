@@ -1,11 +1,21 @@
+// 1-1 data view: this file RENDERS the engine's data, it does not describe it in
+// prose. Every line below is a field read off DECREES / VERBS / CHARACTERS / CONFIG
+// in config.ts — the same objects game.ts executes. If a rule changes, this changes
+// with it; there is no parallel description to drift.
+
+import type { ReactNode } from "react";
 import {
   CONFIG,
   DECREES,
-  FACTION_SPECS,
-  MOVES,
+  VERBS,
+  CHARACTERS,
+  SHARD,
   WHITE_DECK_TEMPLATE,
+  availableVerbs,
   WHITE,
   type FactionId,
+  type Decree,
+  type VerbSpec,
 } from "./config";
 
 function deckCounts(): Record<string, number> {
@@ -14,26 +24,76 @@ function deckCounts(): Record<string, number> {
   return out;
 }
 
-function factionsLabel(ids: FactionId[]): string {
-  return ids.map((i) => (i === WHITE ? "White" : "Red")).join(" + ");
+const facName = (id: FactionId) => (id === WHITE ? "White" : "Red");
+
+// A field row: "key: value" in mono, for the spec look.
+function Field({ k, v }: { k: string; v: ReactNode }) {
+  return (
+    <div className="spec-field">
+      <span className="spec-key">{k}</span>
+      <span className="spec-val">{v}</span>
+    </div>
+  );
 }
 
-// Plain-language summary of a decree's hook, derived from its data.
-function decreeHook(id: string): string {
-  const d = DECREES[id];
-  if (!d) return "";
-  const parts: string[] = [];
-  if (d.rider && d.score?.when === "compliance") {
-    parts.push(
-      `On ${d.trigger.on}${d.trigger.detail ? ` (${Object.values(d.trigger.detail)})` : ""}: actor may "${d.rider.describe}". If they do, White +${d.score.amount}.`,
-    );
-  } else if (d.score?.when === "always") {
-    const eff = d.effect?.yield_delta ? ` (+${d.effect.yield_delta} to the actor too)` : "";
-    parts.push(`On ${d.trigger.on}: White +${d.score.amount} each time${eff}.`);
-  }
-  if (d.effect?.cost_delta) parts.push(`Ambient tax: ${d.trigger.on} costs ${d.effect.cost_delta > 0 ? "+" : ""}${d.effect.cost_delta}.`);
-  if (d.effect?.yield_delta && !d.score) parts.push(`Ambient: ${d.trigger.on} yields ${d.effect.yield_delta > 0 ? "+" : ""}${d.effect.yield_delta}.`);
-  return parts.join(" ");
+function DecreeSpec({ d }: { d: Decree }) {
+  const t = d.trigger;
+  return (
+    <div className={`spec-card ${d.type}`}>
+      <div className="spec-head">
+        <span className="spec-id">{d.id}</span>
+        <span className={`rb-type ${d.type}`}>{d.type}</span>
+      </div>
+      <Field
+        k="on"
+        v={t.detail ? `${t.on} where ${Object.entries(t.detail).map(([k, v]) => `${k}=${v}`).join(", ")}` : t.on}
+      />
+      {d.effect &&
+        Object.entries(d.effect).map(([k, v]) => (
+          <Field key={k} k="effect" v={`${k} ${(v as number) >= 0 ? "+" : ""}${v}`} />
+        ))}
+      {d.rider && (
+        <Field
+          k="rider"
+          v={`may {${Object.entries(d.rider.effect).map(([k, v]) => `${k} ${v >= 0 ? "+" : ""}${v}`).join(", ")}}`}
+        />
+      )}
+      {d.score && (
+        <Field
+          k="score"
+          v={`${d.score.when} → owner +${d.score.amount}`}
+        />
+      )}
+    </div>
+  );
+}
+
+function VerbSpecCard({ v }: { v: VerbSpec }) {
+  const grantedTo = (["0", "1"] as FactionId[]).filter((f) =>
+    availableVerbs(f).includes(v.name),
+  );
+  return (
+    <div className="spec-card">
+      <div className="spec-head">
+        <span className="spec-id">{v.name}</span>
+        <span className="rb-muted">{v.tier}</span>
+      </div>
+      <Field
+        k="colours"
+        v={v.colours.length ? v.colours.join(" / ") : `— (granted to ${v.signatureOf !== undefined ? facName(v.signatureOf) : "?"} by name)`}
+      />
+      <Field k="available to" v={grantedTo.map(facName).join(", ") || "none"} />
+      {v.yields && <Field k="yields" v={`+${v.yields.amount} ${v.yields.unit}`} />}
+      {v.spends && <Field k="spends" v={`${v.spends.amount} ${v.spends.unit} (± decree cost)`} />}
+      {v.draws !== undefined && <Field k="draws" v={`${v.draws} card`} />}
+      {v.scores && (
+        <Field
+          k="scores"
+          v={`actor +${v.scores.amount}${v.scores.alsoKnocks ? `, target −${v.scores.alsoKnocks}` : ""}`}
+        />
+      )}
+    </div>
+  );
 }
 
 export function Rulebook() {
@@ -42,137 +102,79 @@ export function Rulebook() {
   return (
     <div className="rulebook">
       <section className="rb-block">
-        <h2>Victory</h2>
-        <p>
-          First faction to reach <strong>{CONFIG.mandate_target}</strong> Mandate
-          wins. Game caps at {CONFIG.max_turns} turns (higher Mandate wins;
-          tie = draw).
-        </p>
-        <p>
-          Each turn: the active player takes exactly{" "}
-          <strong>{CONFIG.actions_per_turn} moves</strong>, then passes. Turn
-          order: White → Red → White → …
-        </p>
-      </section>
-
-      <section className="rb-block">
-        <h2>The three-tier character model</h2>
-        <p>
-          Every faction is a character with three tiers: <strong>(1) a scoring
-          rule</strong> — how it wins, unique to it; <strong>(2) a signature
-          verb</strong> — only it can do, unshareable; <strong>(3) shared
-          verbs</strong> — drawn from a common pool, granted when the verb's
-          colours overlap the character's <em>shard</em> (centre + two wings on
-          the wheel). "Running the wheel" = leaning into wing-colour verbs you
-          share with neighbours.
-        </p>
-        <p className="rb-muted">
-          Units are two currencies, one per green edge:{" "}
-          <strong>supporters</strong> (G–W community, soft stock — White's edict
-          fuel) and <strong>zealots</strong> (G–R authenticity, hard flow — spent
-          on strikes). White's shard (GWU) has no R, so it is structurally
-          non-militant: it can never muster zealots or strike.
+        <h2>System</h2>
+        <Field k="mandate_target" v={CONFIG.mandate_target} />
+        <Field k="actions_per_turn" v={CONFIG.actions_per_turn} />
+        <Field k="max_turns" v={CONFIG.max_turns} />
+        <Field k="win" v="first to mandate_target; at max_turns, higher wins (tie → draw)" />
+        <Field k="turn order" v="White → Red → … (alternating)" />
+        <p className="rb-muted rb-note">
+          A verb is available to a character iff it is their signature, or any of the
+          verb's colours is in their <em>shard</em> (centre + two wheel-wings). Decrees
+          are standing rules that hook every verb; their owner scores per the{" "}
+          <code>score</code> field. Everything below is rendered from the engine data.
         </p>
       </section>
 
       <section className="rb-block">
-        <h2>Factions</h2>
-        <div className="rb-grid">
-          {FACTION_SPECS.map((f) => (
-            <div key={f.id} className={`rb-faction ${f.id === WHITE ? "white" : "red"}`}>
-              <h3>
-                {f.name} <span className="rb-muted">— {f.centre}</span>
-              </h3>
-              <dl>
-                <dt>Shard</dt><dd>{f.shard}</dd>
-                <dt>Archetype</dt><dd>{f.archetype}</dd>
-                <dt>Signature</dt><dd>{f.signature}</dd>
-                <dt>Scoring</dt><dd>{f.scoringRule}</dd>
-                <dt>Starting</dt><dd>{f.startingResources}</dd>
-                <dt>Upkeep draw</dt><dd>{f.draw}</dd>
-              </dl>
-            </div>
+        <h2>Characters</h2>
+        <div className="spec-grid">
+          {CHARACTERS.map((c) => {
+            const cfg = c.id === WHITE ? CONFIG.white : CONFIG.red;
+            return (
+              <div key={c.id} className={`spec-card ${c.id === WHITE ? "white-edge" : "red-edge"}`}>
+                <div className="spec-head">
+                  <span className="spec-id">{c.name}</span>
+                  <span className="rb-muted">{c.character}</span>
+                </div>
+                <Field k="centre" v={c.centre} />
+                <Field k="shard" v={SHARD[c.id].join(" ")} />
+                <Field k="tier1 scoring" v={c.scoring} />
+                <Field k="tier2 signature" v={c.signature} />
+                <Field k="tier3 shared" v={availableVerbs(c.id).filter((x) => x !== c.signature).join(", ") || "—"} />
+                <Field k="start" v={`hand ${cfg.starting_hand} · supporters ${cfg.starting_supporters} · zealots ${cfg.starting_zealots}`} />
+                <Field k="draw/turn" v={`${cfg.draw_per_turn}${cfg.deck ? ` (${cfg.deck} deck)` : " (no deck)"}`} />
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="rb-block">
+        <h2>Verbs</h2>
+        <div className="spec-grid">
+          {VERBS.map((v) => (
+            <VerbSpecCard key={v.name} v={v} />
           ))}
         </div>
       </section>
 
       <section className="rb-block">
-        <h2>Moves</h2>
-        <table className="rb-table">
-          <thead>
-            <tr>
-              <th>Move</th>
-              <th>Available to</th>
-              <th>Tier · colours</th>
-              <th>Scores?</th>
-              <th>Effect</th>
-            </tr>
-          </thead>
-          <tbody>
-            {MOVES.map((m) => (
-              <tr key={m.id}>
-                <td><strong>{m.name}</strong></td>
-                <td>{factionsLabel(m.factions)}</td>
-                <td>
-                  <em>{m.tier}</em>
-                  <div className="rb-muted">{m.colours}</div>
-                </td>
-                <td>
-                  {m.scoresFor !== undefined
-                    ? (m.scoresFor === WHITE ? "White" : "Red")
-                    : "—"}
-                </td>
-                <td>
-                  {m.description}
-                  {m.details && (
-                    <div className="rb-muted rb-detail">{m.details}</div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section className="rb-block">
-        <h2>Decrees ({WHITE_DECK_TEMPLATE.length} cards in White's deck)</h2>
-        <p className="rb-muted">
-          Decrees are standing <em>rules on the table</em> that hook every player's
-          verbs. White scores not by acting, but by skimming Mandate when others
-          live under its rules — when they comply with a "may" rider, or via an
-          "always" clause. This is White's theory of governance: legitimacy.
+        <h2>Decrees</h2>
+        <div className="spec-grid">
+          {Object.values(DECREES).map((d) => (
+            <div key={d.id} className="spec-card-wrap">
+              <DecreeSpec d={d} />
+              <div className="spec-meta rb-muted">×{counts[d.id] ?? 0} in deck</div>
+            </div>
+          ))}
+        </div>
+        <p className="rb-muted rb-note">
+          Deck: {WHITE_DECK_TEMPLATE.length} cards. <code>effect</code> applies to every
+          actor (ambient); <code>rider</code> is the "may" the actor chooses (greedy by
+          default); <code>score</code> pays the decree's owner.
         </p>
-        <table className="rb-table">
-          <thead>
-            <tr>
-              <th>Card</th>
-              <th>Type</th>
-              <th>Copies</th>
-              <th>Hook</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.values(DECREES).map((d) => (
-              <tr key={d.id} className={`rb-decree-row ${d.type}`}>
-                <td><strong>{d.name}</strong></td>
-                <td><span className={`rb-type ${d.type}`}>{d.type}</span></td>
-                <td>{counts[d.id] ?? 0}</td>
-                <td>{decreeHook(d.id) || d.text}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </section>
 
       <section className="rb-block">
-        <h2>What's not built yet</h2>
+        <h2>Not built yet</h2>
         <ul>
           <li>Blue (Institute), Green (Orthodoxy), Black (Ledger).</li>
-          <li>Real Research card pool / Archive for Blue.</li>
-          <li>Green's procession (units → Mandate cash-out) and the supporter/zealot spring.</li>
-          <li>Black's Convert action and throughput scoring.</li>
-          <li>Smarter compliance policies (currently every beneficial rider is taken).</li>
-          <li>Cross-shard wing tools (see <code>running-the-wheel.md</code>) — currently mono-vs-mono, which the design brief calls out as unbalanced by design.</li>
+          <li>Research is a stub draw; no Archive / research pool.</li>
+          <li>Green's procession (units → Mandate); the supporter/zealot spring.</li>
+          <li>Black's Convert + throughput scoring.</li>
+          <li>Smarter compliance (riders are auto-accepted; hook: <code>wantsRider</code>).</li>
+          <li>Cross-shard wing tools (see <code>running-the-wheel.md</code>).</li>
         </ul>
       </section>
     </div>

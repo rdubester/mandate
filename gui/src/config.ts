@@ -166,105 +166,88 @@ export const WHITE_DECK_TEMPLATE: string[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// Rulebook metadata. The Rules tab renders directly from these.
+// Verb registry for the Rulebook's 1-1 data view. This is STRUCTURAL, not prose:
+// each field below maps to something the engine (game.ts) literally does, so the
+// Rulebook can't drift from the rules. No description strings — the Rulebook
+// renders these fields directly.
 
-export interface MoveSpec {
-  id: string;
-  name: string;
-  factions: FactionId[];
+export interface VerbSpec {
+  name: string;          // engine move name (also the verb id used in availableVerbs)
   tier: "signature" | "shared";
-  colours: string;
-  scoresFor?: FactionId;
-  description: string;
-  details?: string;
+  colours: Colour[];     // [] for signature (granted by name, not colour)
+  signatureOf?: FactionId;
+  // structural effect — what the move mutates, in field form:
+  yields?: { unit: "supporters" | "zealots"; amount: number };
+  spends?: { unit: "zealots"; amount: number };  // base cost (before decree deltas)
+  draws?: number;
+  scores?: { who: "self"; amount: number; alsoKnocks?: number };
 }
 
-export const MOVES: MoveSpec[] = [
+export const VERBS: VerbSpec[] = [
   {
-    id: "enactDecree",
-    name: "Enact Decree",
-    factions: [WHITE],
+    name: "enact_decree",
     tier: "signature",
-    colours: "W (signature)",
-    description: "White plays a decree from hand into the shared table state (a standing rule).",
-    details:
-      "Decrees hook every player's verbs. White scores not by acting, but by skimming Mandate when others live under its rules (comply with a rider, or by an 'always' clause).",
+    colours: [],
+    signatureOf: WHITE,
   },
   {
-    id: "musterZealots",
-    name: "Muster Zealots",
-    factions: [RED],
+    name: "muster_zealots",
     tier: "signature",
-    colours: "R (signature, G–R edge)",
-    description: `Red mints zealots (hard flow) — +${CONFIG.unit_yield.muster_zealots} per action.`,
-    details:
-      "Red's unshareable signature. White can never do this: its shard (GWU) has no R, so it cannot touch the G–R edge. Writ of Order taxes this −1.",
+    colours: [],
+    signatureOf: RED,
+    yields: { unit: "zealots", amount: CONFIG.unit_yield.muster_zealots },
   },
   {
-    id: "rallySupporters",
-    name: "Rally Supporters",
-    factions: [WHITE],
+    name: "rally_supporters",
     tier: "shared",
-    colours: "G / W edge",
-    description: `Grow supporters (soft stock) — +${CONFIG.unit_yield.rally_supporters} per action.`,
-    details:
-      "Shared on the G–W community edge (White + Green). Open Records boosts it +1 and pays White; Public Works pays White on each rally.",
+    colours: SHARED_VERBS.rally_supporters.colours,
+    yields: { unit: "supporters", amount: CONFIG.unit_yield.rally_supporters },
   },
   {
-    id: "research",
-    name: "Research",
-    factions: [WHITE, RED],
+    name: "research",
     tier: "shared",
-    colours: "U / B edge",
-    description: "Draw a card from your deck (placeholder — Blue isn't built yet).",
-    details:
-      "MVP stub. White has a decree deck so Research draws 1 decree (and can trigger draw-decrees). Red has no deck, so Research is a no-op.",
+    colours: SHARED_VERBS.research.colours,
+    draws: 1,
   },
   {
-    id: "strike",
-    name: "Strike",
-    factions: [RED],
+    name: "strike",
     tier: "shared",
-    colours: "R / B edge",
-    scoresFor: RED,
-    description: "Spend a zealot to hit White's Mandate or remove a decree, and score.",
-    details: `Cost: ${CONFIG.scoring.strike_landed.zealot_cost} zealot (+1 if Martial Restraint in play). Mandate strike: White −${CONFIG.scoring.strike_landed.marker_knockback}, Red +${CONFIG.scoring.strike_landed.mandate_per_strike}. Decree strike: remove a White decree, Red +${CONFIG.scoring.strike_landed.mandate_per_strike}.`,
+    colours: SHARED_VERBS.strike.colours,
+    spends: { unit: "zealots", amount: CONFIG.scoring.strike_landed.zealot_cost },
+    scores: {
+      who: "self",
+      amount: CONFIG.scoring.strike_landed.mandate_per_strike,
+      alsoKnocks: CONFIG.scoring.strike_landed.marker_knockback,
+    },
   },
 ];
 
-export interface FactionSpec {
+// Per-character structural facts (everything else the Rulebook shows is derived
+// from SHARD / VERBS / CONFIG, so there is nothing prose-y to drift).
+export interface CharacterSpec {
   id: FactionId;
-  name: string;
-  centre: string;
-  shard: string;
-  archetype: string;
-  signature: string;
-  scoringRule: string;
-  startingResources: string;
-  draw: string;
+  name: string;          // The Assembly / The Vanguard — a label, not a rule
+  character: string;     // CONFIG.{white,red}.name
+  centre: Colour;
+  signature: string;     // verb name
+  scoring: string;       // CONFIG tier1 key
 }
 
-export const FACTION_SPECS: FactionSpec[] = [
+export const CHARACTERS: CharacterSpec[] = [
   {
     id: WHITE,
     name: "The Assembly",
-    centre: "White (W)",
-    shard: "GWU — green / white / blue",
-    archetype: "Slow interaction · structurally non-militant",
-    signature: "Enact Decree — install standing rules on the table",
-    scoringRule: `Decoupled: White scores when others live under its decrees — +1 (or +2) Mandate on compliance / 'always' clauses. It never strikes (no R in shard).`,
-    startingResources: `Hand: ${CONFIG.white.starting_hand} decree · Supporters: ${CONFIG.white.starting_supporters} · Zealots: ${CONFIG.white.starting_zealots} (can't make any)`,
-    draw: `${CONFIG.white.draw_per_turn} per turn (decree deck)`,
+    character: CONFIG.white.name,
+    centre: "W",
+    signature: CONFIG.white.tier2_signature,
+    scoring: CONFIG.white.tier1_scoring,
   },
   {
     id: RED,
     name: "The Vanguard",
-    centre: "Red (R)",
-    shard: "BRG — black / red / green",
-    archetype: "Fast interaction · militant",
-    signature: "Muster Zealots — mint the hard flow it spends on strikes",
-    scoringRule: `Welded: each strike scores +${CONFIG.scoring.strike_landed.mandate_per_strike} Mandate immediately. Mandate strikes also knock White −${CONFIG.scoring.strike_landed.marker_knockback}.`,
-    startingResources: `Hand: ${CONFIG.red.starting_hand} · Supporters: ${CONFIG.red.starting_supporters} · Zealots: ${CONFIG.red.starting_zealots}`,
-    draw: `${CONFIG.red.draw_per_turn} per turn (no deck currently)`,
+    character: CONFIG.red.name,
+    centre: "R",
+    signature: CONFIG.red.tier2_signature,
+    scoring: CONFIG.red.tier1_scoring,
   },
 ];
