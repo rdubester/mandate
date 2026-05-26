@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+*.pyc
+
+# Node / Vite (gui/)
+node_modules/
+dist/
+*.tsbuildinfo
