@@ -355,8 +355,11 @@ const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
   const seat = playerID as FactionId;
   const opp = opponentOf(seat);
   const sc = CONFIG.scoring.strike_landed;
-  // Seed the strike event with its base params; decrees in the chain may tinker with any of
-  // them (cost, mandate gained, knockback) before it resolves.
+  // A Mandate-strike is PURE SCORING — Red advances its own clock, it does NOT delete the
+  // opponent's Mandate. (Knockback was cut: deleting points off another player's track is
+  // unfun, swingy PvP — the fight belongs on the board, not the scoreboard.) The knockback
+  // event field survives at base 0 so a future decree COULD opt into it via an op if ever
+  // wanted, but no default strike knocks anything back.
   const ev = fireVerb(
     G,
     "strike",
@@ -370,10 +373,11 @@ const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
   p.zealots -= cost;
   const knockback = Math.max(0, ev.knockback);
   const gain = Math.max(0, ev.mandate);
-  G.mandate[opp] = Math.max(0, G.mandate[opp] - knockback);
+  if (knockback > 0) G.mandate[opp] = Math.max(0, G.mandate[opp] - knockback);
   G.mandate[seat] += gain;
   G.log.push(
-    `${label(G, seat)} strikes ${label(G, opp)}'s Mandate: −${knockback} to ${label(G, opp)}, +${gain} to ${label(G, seat)}`,
+    `${label(G, seat)} strikes the Mandate track: +${gain}` +
+      (knockback > 0 ? ` (−${knockback} to ${label(G, opp)})` : ""),
   );
 };
 

@@ -104,7 +104,9 @@ export const CONFIG = {
       mandate_per_strike: 4,
       zealot_cost: 1, // cost to strike the Mandate track
       decree_strike_zealot_cost: 1, // cost to remove a decree (yields 0 Mandate)
-      marker_knockback: 2,
+      // Knockback (deleting the opponent's Mandate) is OFF by default — the fight belongs on
+      // the board, not the scoreboard. Kept as a 0 base so a decree could opt into it later.
+      marker_knockback: 0,
     },
   },
 };
