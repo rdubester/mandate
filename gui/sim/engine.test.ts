@@ -229,6 +229,31 @@ describe("supporter-scoring: only supported decrees bite (markers+shields collap
     c.stop();
   });
 
+  it("a SUPPORTED tax decree (martial_restraint) scores White when Red strikes under it", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "martial_restraint")).toBe(true);
+    // Give White a supporter and place it on the tax decree.
+    freshWhiteTurn(c);
+    seatTo(c, WHITE);
+    c.moves.rallySupporters();
+    c.moves.allocateSupporters(["martial_restraint"]);
+    expect(supportOn(G(c), "martial_restraint")).toBe(1);
+    // Advance to a Red turn where Red can afford a strike, then strike the Mandate track.
+    for (let g = 0; g < 30; g++) {
+      const s = c.getState()!;
+      if (s.ctx.currentPlayer === RED && G(c).players[RED].zealots >= 2) break;
+      c.updatePlayerID(s.ctx.currentPlayer);
+      if (s.ctx.currentPlayer === RED) c.moves.musterZealots();
+      else c.moves.deliberate();
+    }
+    seatTo(c, RED);
+    expect(active(c)).toBe(RED);
+    const wm0 = G(c).mandate[WHITE];
+    c.moves.strikeMandate(); // Red strikes; martial_restraint bites for its White supporter
+    expect(G(c).mandate[WHITE]).toBe(wm0 + (DECREES["martial_restraint"].score?.amount ?? 0));
+    c.stop();
+  });
+
   it("allocate places no more than the available stock", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
