@@ -8,14 +8,14 @@ Active prototype. There is **one engine: the TypeScript / boardgame.io app in `g
 
 The brief still governs the locked architecture below — follow it rather than improvising — but the model has moved on in ways the brief predates. The current model (see `the-character-model.md`): **a character is one colour; a verb is tagged with one or more colours; a character can do a verb iff its colour is among the tags** (`canDo` in `config.ts`). Shard / signature / wing all *emerge* from the verb tags (which follow wheel adjacency) — none are declared. One-colour verb = de-facto signature; multi-colour verb = shared. The unit economy is **two green-edge currencies** (supporters G–W via `rally_supporters`, zealots G–R via `muster_zealots`; no soldiers). Do NOT reintroduce `if colour == X` branches, declared shards, or a "signature" flag — those were all removed in favour of colour-tagged verb rows.
 
-Decree scoring specifically: **`enact_decree` is SHARED {W,U,G}, not White's signature.** White's signature is **`mark`** {W} — it places tokens (pool of `white.markers`) on decrees, and scores only when a *marked* decree "bites" (rider complied with / always-clause fires). Decrees pay no one for ownership. Don't revert `enact_decree` to a White-only signature or reattach scoring to the decree owner.
+Decree scoring specifically: **`enact_decree` is SHARED {W,U,G}, not White's signature.** White's signature is **`allocate_supporters`** {W} — it places up to K supporters (from the loose stock grown by `rally_supporters`) onto decrees as *support*. A supported decree (≥1) both **scores each of its supporters** when it "bites" (rider complied with / always-clause fires) and is **defended** (a strike strips a supporter before it can remove the decree) — markers and shields collapsed into this one "support" concept. Support is keyed per player (`G.support[decreeId][seat]`), so a decree bites for *every* seat with support on it (the hook for a White-vs-White juggling metagame). Decrees live on the **shared table** (`G.decreesInPlay`) and pay no one for ownership. Don't revert `enact_decree` to a White-only signature, reattach scoring to the decree owner, or hardcode `WHITE` as the sole scorer in the decree chain.
 
 ## What's being built
 
 A **playable prototype + balance sandbox** for *The Mandate*. It is now browser-first (React/boardgame.io hotseat) rather than the CLI/headless-sweep tool the brief's §10 imagined — but the same balance goal drives it: find parameter bands where no faction has a trivially dominant clock.
 
 Hard architectural constraints (from §10, still honoured in the TS engine):
-- **Game state is a plain serializable object** (`G`: Mandate, per-player board, decks/hands, unit counts).
+- **Game state is a plain serializable object** (`G`: `players` keyed by seat — each tagged with the `faction` it plays, holding hand + unit counts; plus the shared `decreeDeck`, shared `decreesInPlay`, per-player `support`, and `mandate`). Decks and decrees are **shared table resources**, not per-player — the only per-player deck in the design is Blue's Archive (unbuilt).
 - **Turn loop is a reducer** over `G` (boardgame.io moves) — deterministic, replayable, time-travelable via the debug panel.
 - **Rules lean on data** — decrees, the colour-tagged verb table, and balance numbers live in `config.ts`, read by the engine; the Rulebook renders from the same data.
 - **Everything is observable/loggable** — `G.log` narrates each game; a finished game explains why someone won.
@@ -42,7 +42,7 @@ These are locked decisions from §2 and §7. Do not "improve" past them without 
   - Green (centre of RGW) — `Procession`: cash N units → Mandate (decoupled / over-time).
   - Black (centre of UBR) — `Convert`: scores on throughput / circulation (the third mode).
 - **Turn skeleton is one-size-fits-all:** draw step (volume varies — blue draws most), then **2 actions** from the faction's 3-action shard menu, then pass. **Do not build per-faction turn phases.** Liveliness comes from decrees firing passively and blue/red reacting between turns.
-- **Card/unit factoring is forced by the wheel:** cards = {White decrees (permanent, communal), Blue research (one-shot, private deckbuilder fuel)}; units = {Red soldiers (flow, spent for reach), Green supporters (stock, grown and cashed)}; black is the hinge with no primitive.
+- **Card/unit factoring is forced by the wheel:** cards = {White decrees (permanent, communal), Blue research (one-shot, deckbuilder fuel)}; units = {Red zealots (flow, spent on strikes — the model dropped "soldiers"), Green supporters (stock, grown and cashed)}; black is the hinge with no primitive.
 
 ## Counterplay model (§5) — two principles, kept distinct
 

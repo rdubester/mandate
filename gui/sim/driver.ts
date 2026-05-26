@@ -5,7 +5,7 @@
 // and runs until boardgame.io reports a winner (or a turn cap, as a safety net).
 
 import { Client } from "boardgame.io/client";
-import { MandateGame, strikeCost } from "../src/game";
+import { MandateGame, strikeCost, supportOn } from "../src/game";
 import type { GameState } from "../src/game";
 import { CONFIG, WHITE, RED, DECREES, canDo, type FactionId } from "../src/config";
 
@@ -78,9 +78,9 @@ const whitePolicy: Policy = (G, seat) => {
   // White wins by SUPPORTED decrees biting; support both scores and defends (one concept).
   // Priority: get a scoring decree into play → put support on it (scores + shields it) →
   // pile more support to keep it alive → dig for more decrees.
-  const inPlay = G.white.decreesInPlay;
+  const inPlay = G.decreesInPlay;
   const scoringInPlay = inPlay.filter((id) => DECREES[id]?.score);
-  const scoringInHand = G.white.hand.find((id) => DECREES[id]?.score);
+  const scoringInHand = G.players[WHITE].hand.find((id) => DECREES[id]?.score);
 
   // Enact a scoring decree if none are in play yet.
   if (canDo(seat, "enact_decree") && scoringInPlay.length === 0 && scoringInHand) {
@@ -88,33 +88,33 @@ const whitePolicy: Policy = (G, seat) => {
   }
   // Support a scoring decree (turns scoring on if unsupported; else reinforces the
   // most-exposed one). Pile this turn's K onto a single decree (engine caps at K/stock).
-  if (canDo(seat, "allocate_supporters") && G.white.supporters > 0 && scoringInPlay.length > 0) {
+  if (canDo(seat, "allocate_supporters") && G.players[WHITE].supporters > 0 && scoringInPlay.length > 0) {
     const target = [...scoringInPlay].sort(
-      (a, b) => (G.support[a] ?? 0) - (G.support[b] ?? 0),
+      (a, b) => supportOn(G, a) - supportOn(G, b),
     )[0];
     return { move: "allocateSupporters", args: [Array(CONFIG.supporter_allocate_k).fill(target)] };
   }
   // Need supporters to support with, or more decrees to support.
-  if (scoringInPlay.length > 0 && G.white.supporters === 0 && canDo(seat, "rally_supporters")) {
+  if (scoringInPlay.length > 0 && G.players[WHITE].supporters === 0 && canDo(seat, "rally_supporters")) {
     return { move: "rallySupporters" };
   }
   if (canDo(seat, "enact_decree") && scoringInHand) {
     return { move: "enactDecree", args: [scoringInHand] };
   }
-  if (canDo(seat, "deliberate") && G.white.deck.length > 0) return { move: "deliberate" };
+  if (canDo(seat, "deliberate") && G.decreeDeck.length > 0) return { move: "deliberate" };
   if (canDo(seat, "rally_supporters")) return { move: "rallySupporters" };
   return null;
 };
 
 const redPolicy: Policy = (G, seat) => {
-  // Red's oppressive job: tear down White's SUPPORTED scoring decrees — but each strike
-  // costs a zealot + action and must grind through support, so it's a real tempo
-  // investment, not a free 'no' button. Heuristic: if White has a supported scoring decree,
-  // dismantle it; else race the Mandate track; else muster.
-  const canStrikeNow = canDo(seat, "strike") && G.red.zealots >= strikeCost(G);
+  // Red's oppressive job: tear down supported scoring decrees — but each strike costs a
+  // zealot + action and must grind through support, so it's a real tempo investment, not a
+  // free 'no' button. Heuristic: if a supported scoring decree is on the table, dismantle
+  // it; else race the Mandate track; else muster.
+  const canStrikeNow = canDo(seat, "strike") && G.players[RED].zealots >= strikeCost(G);
   if (canStrikeNow) {
-    const threat = G.white.decreesInPlay.find(
-      (id) => (G.support[id] ?? 0) > 0 && DECREES[id]?.score,
+    const threat = G.decreesInPlay.find(
+      (id) => supportOn(G, id) > 0 && DECREES[id]?.score,
     );
     if (threat) return { move: "strikeDecree", args: [threat] };
     return { move: "strikeMandate" };

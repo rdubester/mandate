@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { BoardProps } from "boardgame.io/react";
-import { strikeCost, decreeStrikeCost, canDo, allDecreesInPlay, type GameState } from "./game";
+import { strikeCost, decreeStrikeCost, canDo, supportOn, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
 
 type Props = BoardProps<GameState>;
@@ -21,22 +21,21 @@ function DecreeCard({
   id,
   onClick,
   label,
-  supported,
-  shields,
+  support,
   pending,
 }: {
   id: string;
   onClick?: () => void;
   label?: string;
-  supported?: boolean;
-  shields?: number; // supporter count on the decree (durability + scoring-on)
+  support?: number; // total supporter count on the decree (durability + scoring-on)
   pending?: number; // staged-but-not-committed support
 }) {
   const d = DECREES[id];
   if (!d) return <span className="card">{id}</span>;
+  const supported = (support ?? 0) > 0;
   const supStr =
-    (shields ?? 0) > 0 || (pending ?? 0) > 0
-      ? "●".repeat(shields ?? 0) + (pending ? `+${"●".repeat(pending)}` : "")
+    (support ?? 0) > 0 || (pending ?? 0) > 0
+      ? "●".repeat(support ?? 0) + (pending ? `+${"●".repeat(pending)}` : "")
       : "";
   return (
     <button
@@ -62,17 +61,18 @@ export function MandateBoard(props: Props) {
   const { G, ctx, moves } = props;
   const active = ctx.currentPlayer as FactionId;
   const gameOver = ctx.gameover;
-  const canStrike = G.red.zealots >= strikeCost(G);
+  const canStrike = G.players[RED].zealots >= strikeCost(G);
 
   // White stages a support allocation (decree id → count) by clicking decrees, then commits
   // one action that places up to K supporters. Cleared after committing.
   const [pending, setPending] = useState<Record<string, number>>({});
   const pendingTotal = Object.values(pending).reduce((a, b) => a + b, 0);
   const k = CONFIG.supporter_allocate_k;
+  const whiteStock = G.players[WHITE].supporters;
 
   const resetAlloc = () => setPending({});
   const stageSupport = (id: string) => {
-    if (pendingTotal >= k || pendingTotal >= G.white.supporters) return;
+    if (pendingTotal >= k || pendingTotal >= whiteStock) return;
     setPending((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
   };
   const commitSupport = () => {
@@ -122,18 +122,44 @@ export function MandateBoard(props: Props) {
         </div>
       </section>
 
+      {/* Shared decree table */}
+      <section className="table-panel">
+        <h3>
+          Decrees on the table{" "}
+          {active === WHITE && !gameOver && whiteStock > 0 && (
+            <span className="rb-muted">— click to stage support</span>
+          )}
+        </h3>
+        <div className="card-list">
+          {G.decreesInPlay.map((id, i) => {
+            const canStage =
+              active === WHITE && !gameOver && pendingTotal < k && pendingTotal < whiteStock;
+            return (
+              <DecreeCard
+                key={i}
+                id={id}
+                onClick={canStage ? () => stageSupport(id) : undefined}
+                support={supportOn(G, id)}
+                pending={pending[id] ?? 0}
+              />
+            );
+          })}
+          {G.decreesInPlay.length === 0 && <em>none</em>}
+        </div>
+      </section>
+
       {/* WHITE panel */}
       <section className={`faction-panel ${active === WHITE ? "active" : ""}`}>
         <h2>White — Assembly</h2>
         <div className="resources">
-          deck: {G.white.deck.length} · supporters (unplaced): {G.white.supporters}
+          deck: {G.decreeDeck.length} · supporters (unplaced): {whiteStock}
         </div>
 
         <div className="row">
           <div className="col">
-            <h3>Hand ({G.white.hand.length})</h3>
+            <h3>Hand ({G.players[WHITE].hand.length})</h3>
             <div className="card-list">
-              {G.white.hand.map((id, i) => (
+              {G.players[WHITE].hand.map((id, i) => (
                 <DecreeCard
                   key={i}
                   id={id}
@@ -141,37 +167,7 @@ export function MandateBoard(props: Props) {
                   label={active === WHITE ? "enact" : undefined}
                 />
               ))}
-              {G.white.hand.length === 0 && <em>empty</em>}
-            </div>
-          </div>
-          <div className="col">
-            <h3>
-              Decrees in play{" "}
-              {active === WHITE && !gameOver && G.white.supporters > 0 && (
-                <span className="rb-muted">— click to stage support</span>
-              )}
-            </h3>
-            <div className="card-list">
-              {allDecreesInPlay(G).map(({ id, owner }, i) => {
-                const support = G.support[id] ?? 0;
-                const canStage =
-                  active === WHITE &&
-                  !gameOver &&
-                  pendingTotal < k &&
-                  pendingTotal < G.white.supporters;
-                return (
-                  <DecreeCard
-                    key={i}
-                    id={id}
-                    onClick={canStage ? () => stageSupport(id) : undefined}
-                    supported={support > 0}
-                    shields={support}
-                    pending={pending[id] ?? 0}
-                    label={owner === RED ? "(red's)" : undefined}
-                  />
-                );
-              })}
-              {allDecreesInPlay(G).length === 0 && <em>none</em>}
+              {G.players[WHITE].hand.length === 0 && <em>empty</em>}
             </div>
           </div>
         </div>
@@ -187,7 +183,7 @@ export function MandateBoard(props: Props) {
               <button onClick={() => moves.deliberate()}>Deliberate (draw 1)</button>
             )}
             <span className="rb-muted">
-              staged {pendingTotal}/{Math.min(k, G.white.supporters)}
+              staged {pendingTotal}/{Math.min(k, whiteStock)}
             </span>
             <button disabled={pendingTotal === 0} onClick={commitSupport}>
               Support ({pendingTotal})
@@ -205,7 +201,7 @@ export function MandateBoard(props: Props) {
       <section className={`faction-panel ${active === RED ? "active" : ""}`}>
         <h2>Red — Vanguard</h2>
         <div className="resources">
-          zealots: {G.red.zealots} · supporters: {G.red.supporters}
+          zealots: {G.players[RED].zealots} · supporters: {G.players[RED].supporters}
         </div>
 
         {active === RED && !gameOver && (
@@ -224,13 +220,13 @@ export function MandateBoard(props: Props) {
                 Strike White's Mandate (cost {strikeCost(G)})
               </button>
             )}
-            {canDo(RED, "strike") && G.white.decreesInPlay.length > 0 && (
+            {canDo(RED, "strike") && G.decreesInPlay.length > 0 && (
               <div className="strike-decree-group">
                 <span>Remove a decree (cost {decreeStrikeCost(G)}, +0 Mandate):</span>
-                {G.white.decreesInPlay.map((id, i) => (
+                {G.decreesInPlay.map((id, i) => (
                   <button
                     key={i}
-                    disabled={G.red.zealots < decreeStrikeCost(G)}
+                    disabled={G.players[RED].zealots < decreeStrikeCost(G)}
                     onClick={() => moves.strikeDecree(id)}
                   >
                     {DECREES[id]?.name ?? id}

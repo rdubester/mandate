@@ -54,7 +54,7 @@ function extract(log: string[], r: { winner: Features["winner"]; turns: number; 
     musters: count("muster_zealots:"),
     rallies: count("rally_supporters:"),
     deliberates: count("deliberates:"),
-    decreesRemoved: count("off white's board"),
+    decreesRemoved: count("off the table"),
     everSupported: log.some(has("white supports")),
   };
 }
