@@ -4,7 +4,7 @@
 //   signature structure is NOT declared — it EMERGES from how verbs are tagged, and
 //   the tags follow the wheel's adjacency (W–U–B–R–G):
 //     · a verb tagged with ONE colour is reachable by exactly one character — that is
-//       what "signature" means (e.g. enact_decree {W} → only White).
+//       what "signature" means (e.g. allocate_supporters {W} → only White; strike {R} → Red).
 //     · a verb tagged with TWO ADJACENT colours is a wing/edge verb shared by both
 //       neighbours (e.g. rally_supporters {W,G} → White and Green).
 //   A character's "shard" is just the set of colours appearing across the verbs it can
@@ -40,7 +40,6 @@ export const CONFIG = {
     starting_zealots: 0,
     deck: "decree" as const,
     scoring: "decree_bite",
-    markers: 3, // White's fixed pool of platform tokens (see mark / decree_bite)
   },
   red: {
     name: "The Field Marshal",
@@ -66,10 +65,11 @@ export const CONFIG = {
     muster_zealots: 2,
   },
 
-  // White's supporters DEFEND decrees: allocate up to K from the loose stock onto decrees
-  // as shields. A Red strike strips one shield before it can remove the decree, so White's
-  // legitimacy makes its platform expensive to tear down. K>1 means one White action is
-  // "K placements in a trenchcoat" — extra strategic depth per turn without more actions.
+  // White's signature places up to K supporters from stock onto decrees as SUPPORT. A
+  // supported decree (≥1) BOTH scores White when it bites AND is defended — a Red strike
+  // strips one supporter before it can remove the decree. (Markers + shields collapsed into
+  // this one concept.) K>1 = one White action is "K placements in a trenchcoat" — depth per
+  // turn without more actions. Count is durability; ≥1 is what turns scoring on (flat).
   supporter_allocate_k: 3,
 
   scoring: {
@@ -101,21 +101,18 @@ export interface VerbSpec {
   spends?: { unit: "zealots"; amount: number }; // base cost (before decree deltas)
   draws?: number;
   scores?: { who: "self"; amount: number; alsoKnocks?: number };
-  marks?: boolean; // moves a White marker from pool onto a decree in play
-  allocates?: boolean; // moves up to K supporters from stock onto decrees (shields)
+  allocates?: boolean; // places up to K supporters from stock onto decrees (support)
 }
 
 export const VERBS: VerbSpec[] = [
-  // White's SIGNATURE: place a platform marker on a decree in play. {W} → White alone.
-  // White scores when a MARKED decree's output fires (see decree_bite / fireDecrees).
-  // Markers return to the pool when their decree leaves play.
-  { name: "mark", colours: ["W"], marks: true },
-  // White {W}: allocate up to K supporters from stock onto decrees as shields (defends
-  // them from Red's strikes). One action distributes K — "K placements in a trenchcoat".
+  // White's SIGNATURE {W}: place up to K supporters from stock onto decrees as SUPPORT.
+  // A supported decree (≥1) BOTH scores White when it bites AND is defended (support
+  // absorbs Red strikes). One action distributes K — "K placements in a trenchcoat".
+  // (Markers and shields were collapsed into this one concept.)
   { name: "allocate_supporters", colours: ["W"], allocates: true },
   // Enact a decree (install a standing table rule). SHARED across the governance trio
   // {W,U,G}: White backs platforms, Blue plays tempo bets, Green stabilises the board.
-  // Not a signature anymore. Red (R) cannot enact — only strike decrees away.
+  // Red (R) cannot enact — only strike decrees away.
   { name: "enact_decree", colours: ["W", "U", "G"] },
   // White draws from its own (decree) deck. {W} only for now — when Blue arrives this
   // likely becomes a shared W–U "research" verb (digs both decks); reskin then.
@@ -155,12 +152,12 @@ export function verbsFor(f: FactionId): string[] {
 // ---- decrees: shared RULES on the table that hook the verb pipeline -----------
 // A decree may match a verb (+detail), apply an ambient EFFECT (cost/yield delta),
 // and OFFER a rider (the 'may' — acting player chooses). Decrees pay NO ONE for
-// ownership. The `score` field is what WHITE earns IF this decree carries a White
-// marker and its output "bites":
+// ownership. The `score` field is what WHITE earns IF this decree is SUPPORTED (≥1 of
+// White's supporters on it) and its output "bites":
 //   · when "compliance" → bites only when a player TAKES the rider (the output fired).
 //   · when "always"     → bites whenever the trigger fires (ambient output always fires).
-// A decree with no `score` (a pure tax) can be enacted but is worthless to mark.
-// Anyone in {W,U,G} can enact decrees; only White can mark them.
+// A decree with no `score` (a pure tax) can be enacted but is worthless to support.
+// Anyone in {W,U,G} can enact decrees; only White can support them (its signature).
 
 export type DecreeType = "positive" | "negative";
 
@@ -183,7 +180,7 @@ export interface Decree {
     shield_strip_delta?: number;
   };
   rider?: { effect: Record<string, number>; describe: string };
-  score?: { when: "compliance" | "always"; amount: number }; // White's, only if marked
+  score?: { when: "compliance" | "always"; amount: number }; // White's, only if the decree is supported
 }
 
 export const DECREES: Record<string, Decree> = {
@@ -191,7 +188,7 @@ export const DECREES: Record<string, Decree> = {
     id: "civic_endowment",
     name: "Civic Endowment",
     type: "positive",
-    text: "When any player draws a card, they may draw +1. If marked & they do, White scores 1.",
+    text: "When any player draws a card, they may draw +1. If supported & they do, White scores 1.",
     trigger: { on: "draw" },
     rider: { effect: { extra_draw: 1 }, describe: "draw +1 card" },
     score: { when: "compliance", amount: 1 },
@@ -200,7 +197,7 @@ export const DECREES: Record<string, Decree> = {
     id: "academic_census",
     name: "Academic Census",
     type: "positive",
-    text: "When a RESEARCH card is drawn, that player may draw +1. If marked & they do, White scores 2.",
+    text: "When a RESEARCH card is drawn, that player may draw +1. If supported & they do, White scores 2.",
     trigger: { on: "draw", detail: { deck: "research" } },
     rider: { effect: { extra_draw: 1 }, describe: "draw +1 research card" },
     score: { when: "compliance", amount: 2 },
@@ -209,7 +206,7 @@ export const DECREES: Record<string, Decree> = {
     id: "open_records",
     name: "Open Records",
     type: "positive",
-    text: "When any player rallies supporters, they get +1 supporter. If marked, White scores 1 each time.",
+    text: "When any player rallies supporters, they get +1 supporter. If supported, White scores 1 each time.",
     trigger: { on: "rally_supporters" },
     effect: { yield_delta: 1 },
     score: { when: "always", amount: 1 },
@@ -218,7 +215,7 @@ export const DECREES: Record<string, Decree> = {
     id: "martial_restraint",
     name: "Martial Restraint",
     type: "negative",
-    text: "Ambient: strikes cost +1 zealot. (A tax on the militant G–R edge — no score to mark.)",
+    text: "Ambient: strikes cost +1 zealot. (A tax on the militant G–R edge — no score to support.)",
     trigger: { on: "strike" },
     effect: { cost_delta: 1 },
   },
@@ -226,7 +223,7 @@ export const DECREES: Record<string, Decree> = {
     id: "writ_of_order",
     name: "Writ of Order",
     type: "negative",
-    text: "Ambient: mustering zealots yields −1. (A tax on militarization — no score to mark.)",
+    text: "Ambient: mustering zealots yields −1. (A tax on militarization — no score to support.)",
     trigger: { on: "muster_zealots" },
     effect: { yield_delta: -1 },
   },
@@ -234,7 +231,7 @@ export const DECREES: Record<string, Decree> = {
     id: "public_works",
     name: "Public Works",
     type: "positive",
-    text: "When any player rallies supporters, if marked White scores 1 (no effect on the rally itself).",
+    text: "When any player rallies supporters, if supported White scores 1 (no effect on the rally itself).",
     trigger: { on: "rally_supporters" },
     score: { when: "always", amount: 1 },
   },

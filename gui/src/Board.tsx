@@ -5,9 +5,6 @@ import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./con
 
 type Props = BoardProps<GameState>;
 
-// What a click on a decree-in-play does, during White's turn.
-type WhiteMode = "mark" | "shield";
-
 function MandateBar({ value, target, color }: { value: number; target: number; color: string }) {
   const pct = Math.min(100, (value / target) * 100);
   return (
@@ -24,20 +21,20 @@ function DecreeCard({
   id,
   onClick,
   label,
-  marked,
+  supported,
   shields,
   pending,
 }: {
   id: string;
   onClick?: () => void;
   label?: string;
-  marked?: boolean;
-  shields?: number;
-  pending?: number;
+  supported?: boolean;
+  shields?: number; // supporter count on the decree (durability + scoring-on)
+  pending?: number; // staged-but-not-committed support
 }) {
   const d = DECREES[id];
   if (!d) return <span className="card">{id}</span>;
-  const shieldStr =
+  const supStr =
     (shields ?? 0) > 0 || (pending ?? 0) > 0
       ? "●".repeat(shields ?? 0) + (pending ? `+${"●".repeat(pending)}` : "")
       : "";
@@ -49,12 +46,12 @@ function DecreeCard({
       title={d.text}
     >
       <div className="card-name">
-        {marked && "◆ "}
+        {supported && "★ "}
         {d.name}
       </div>
       <div className="card-type">
         {d.type}
-        {shieldStr && <span className="card-shields"> · {shieldStr}</span>}
+        {supStr && <span className="card-shields"> · {supStr}</span>}
       </div>
       {label && <div className="card-label">{label}</div>}
     </button>
@@ -67,19 +64,18 @@ export function MandateBoard(props: Props) {
   const gameOver = ctx.gameover;
   const canStrike = G.red.zealots >= strikeCost(G);
 
-  // White's click-mode + a pending shield allocation (decree id → count) being staged
-  // before commit. Cleared after committing or switching mode.
-  const [mode, setMode] = useState<WhiteMode>("mark");
+  // White stages a support allocation (decree id → count) by clicking decrees, then commits
+  // one action that places up to K supporters. Cleared after committing.
   const [pending, setPending] = useState<Record<string, number>>({});
   const pendingTotal = Object.values(pending).reduce((a, b) => a + b, 0);
   const k = CONFIG.supporter_allocate_k;
 
   const resetAlloc = () => setPending({});
-  const stageShield = (id: string) => {
+  const stageSupport = (id: string) => {
     if (pendingTotal >= k || pendingTotal >= G.white.supporters) return;
     setPending((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
   };
-  const commitShields = () => {
+  const commitSupport = () => {
     const list: string[] = [];
     for (const [id, n] of Object.entries(pending)) for (let i = 0; i < n; i++) list.push(id);
     if (list.length) moves.allocateSupporters(list);
@@ -130,9 +126,7 @@ export function MandateBoard(props: Props) {
       <section className={`faction-panel ${active === WHITE ? "active" : ""}`}>
         <h2>White — Assembly</h2>
         <div className="resources">
-          deck: {G.white.deck.length} · supporters: {G.white.supporters} · markers:{" "}
-          {"●".repeat(G.whiteMarkers)}
-          {"○".repeat(G.marks.length)} ({G.whiteMarkers} of {CONFIG.white.markers} free)
+          deck: {G.white.deck.length} · supporters (unplaced): {G.white.supporters}
         </div>
 
         <div className="row">
@@ -153,35 +147,25 @@ export function MandateBoard(props: Props) {
           <div className="col">
             <h3>
               Decrees in play{" "}
-              {active === WHITE && !gameOver && (
-                <span className="rb-muted">
-                  — click to {mode === "mark" ? "mark" : "shield"}
-                </span>
+              {active === WHITE && !gameOver && G.white.supporters > 0 && (
+                <span className="rb-muted">— click to stage support</span>
               )}
             </h3>
             <div className="card-list">
               {allDecreesInPlay(G).map(({ id, owner }, i) => {
-                const marked = G.marks.includes(id);
-                const shields = G.shields[id] ?? 0;
-                const isWhiteTurn = active === WHITE && !gameOver;
-                const canMark = isWhiteTurn && mode === "mark" && !marked && G.whiteMarkers > 0;
-                const canShield =
-                  isWhiteTurn &&
-                  mode === "shield" &&
+                const support = G.support[id] ?? 0;
+                const canStage =
+                  active === WHITE &&
+                  !gameOver &&
                   pendingTotal < k &&
                   pendingTotal < G.white.supporters;
-                const onClick = canMark
-                  ? () => moves.mark(id)
-                  : canShield
-                    ? () => stageShield(id)
-                    : undefined;
                 return (
                   <DecreeCard
                     key={i}
                     id={id}
-                    onClick={onClick}
-                    marked={marked}
-                    shields={shields}
+                    onClick={canStage ? () => stageSupport(id) : undefined}
+                    supported={support > 0}
+                    shields={support}
                     pending={pending[id] ?? 0}
                     label={owner === RED ? "(red's)" : undefined}
                   />
@@ -202,35 +186,16 @@ export function MandateBoard(props: Props) {
             {canDo(WHITE, "deliberate") && (
               <button onClick={() => moves.deliberate()}>Deliberate (draw 1)</button>
             )}
-            {/* mark / shield mode toggle for what clicking a decree does */}
-            <button
-              className={mode === "mark" ? "active" : ""}
-              onClick={() => { setMode("mark"); resetAlloc(); }}
-            >
-              Mode: Mark
+            <span className="rb-muted">
+              staged {pendingTotal}/{Math.min(k, G.white.supporters)}
+            </span>
+            <button disabled={pendingTotal === 0} onClick={commitSupport}>
+              Support ({pendingTotal})
             </button>
-            {canDo(WHITE, "allocate_supporters") && (
-              <button
-                className={mode === "shield" ? "active" : ""}
-                onClick={() => { setMode("shield"); resetAlloc(); }}
-              >
-                Mode: Shield
+            {pendingTotal > 0 && (
+              <button onClick={resetAlloc} className="rb-muted">
+                clear
               </button>
-            )}
-            {mode === "shield" && (
-              <>
-                <span className="rb-muted">
-                  staged {pendingTotal}/{Math.min(k, G.white.supporters)}
-                </span>
-                <button disabled={pendingTotal === 0} onClick={commitShields}>
-                  Allocate {pendingTotal} supporter(s)
-                </button>
-                {pendingTotal > 0 && (
-                  <button onClick={resetAlloc} className="rb-muted">
-                    clear
-                  </button>
-                )}
-              </>
             )}
           </div>
         )}

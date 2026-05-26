@@ -1,4 +1,4 @@
-import type { Game, Move } from "boardgame.io";
+import type { Game, Move, AiEnumerate } from "boardgame.io";
 import { INVALID_MOVE } from "boardgame.io/core";
 import {
   CONFIG,
@@ -27,15 +27,13 @@ export interface GameState {
   mandate: Record<FactionId, number>;
   white: PlayerState;
   red: PlayerState;
-  // White's platform markers. `markers` = tokens still in the pool; `marks` = decree
-  // ids (on any player's board) currently carrying a White token. White scores when a
-  // marked decree's output bites. A token returns to the pool when its decree leaves play.
-  whiteMarkers: number;
-  marks: string[];
-  // Shields: supporters White has allocated onto decrees (keyed by decree id). A Red
-  // strike strips one shield before it can remove the decree. Cleared when a decree
-  // leaves play. White's loose supporter stock lives on G.white.supporters.
-  shields: Record<string, number>;
+  // Supporters White has placed on decrees (keyed by decree id) — its "support" for that
+  // platform. One unified concept (markers + shields collapsed): a SUPPORTED decree (≥1
+  // supporter) BOTH scores White when it bites AND is defended — a Red strike strips one
+  // supporter before it can remove the decree. Count = durability; ≥1 = scores (flat, not
+  // proportional — White isn't populism). Cleared when a decree leaves play. White's loose
+  // unplaced stock lives on G.white.supporters.
+  support: Record<string, number>;
   log: string[];
 }
 
@@ -143,15 +141,16 @@ function fireDecrees(
       }
     }
 
-    // Scoring: decrees pay no one for ownership. White scores ONLY if its marker is on
-    // this decree AND the output "bit" (rider complied, or an always-clause fired).
-    if (spec.score && G.marks.includes(id)) {
+    // Scoring: decrees pay no one for ownership. White scores ONLY if the decree is
+    // SUPPORTED (≥1 supporter on it) AND the output "bit" (rider complied / always-clause).
+    // Flat amount regardless of how many supporters — count is durability, not score.
+    if (spec.score && (G.support[id] ?? 0) > 0) {
       const { when, amount } = spec.score;
       const bit = (when === "compliance" && complied) || when === "always";
       if (bit && amount) {
         G.mandate[WHITE] += amount;
         G.log.push(
-          `  · marked decree '${id}' bites (${when}): white +${amount} Mandate` +
+          `  · supported decree '${id}' bites (${when}): white +${amount} Mandate` +
             (complied ? ` [${playerKey(player)} complied]` : ""),
         );
       }
@@ -225,42 +224,30 @@ const enactDecree: Move<GameState> = ({ G, playerID, ctx }, cardId: string) => {
   G.log.push(`${playerKey(playerID as FactionId)} enacts decree '${cardId}'`);
 };
 
-// White's signature: spend a marker from the pool onto a decree in play (any board).
-// White then scores when that decree's output bites. Markers are scarce (whiteMarkers).
-const mark: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) => {
-  if (!playerID || !canAct(playerID, ctx, "mark")) return INVALID_MOVE;
-  if (G.whiteMarkers <= 0) return INVALID_MOVE; // pool empty
-  if (G.marks.includes(decreeId)) return INVALID_MOVE; // already marked
-  const inPlay = allDecreesInPlay(G).some((d) => d.id === decreeId);
-  if (!inPlay) return INVALID_MOVE; // can only mark a decree on the table
-  G.whiteMarkers -= 1;
-  G.marks.push(decreeId);
-  G.log.push(`white marks decree '${decreeId}' (${G.whiteMarkers} markers left)`);
-};
-
-// White {W}: one action allocates up to K supporters from the loose stock onto decrees
-// as shields. `placements` is a list of decree ids, one shield each (repeats allowed) —
-// so this is "up to K independent placements in a single action". Capped at K and at the
-// available stock; invalid targets are skipped. A no-op allocation is rejected.
+// White {W}: one action places up to K supporters from the loose stock onto decrees as
+// SUPPORT. A supported decree (≥1) scores White when it bites AND is defended (supporters
+// absorb Red's strikes). `placements` is a list of decree ids, one supporter each (repeats
+// allowed) — "up to K placements in a single action". Capped at K and at available stock;
+// invalid targets skipped; a no-op allocation is rejected.
 const allocateSupporters: Move<GameState> = ({ G, playerID, ctx }, placements: string[]) => {
   if (!playerID || !canAct(playerID, ctx, "allocate_supporters")) return INVALID_MOVE;
   const w = G.white;
   // K is the base + any decree-supplied delta (fired through the same hook pipeline as
-  // strike-cost / draw), so "a decree that lets White allocate +1" is just a data row
-  // with effect {alloc_delta: 1} on trigger {on: "allocate_supporters"} — no engine change.
+  // strike-cost / draw), so "a decree that lets White support +1" is just a data row with
+  // effect {alloc_delta: 1} on trigger {on: "allocate_supporters"} — no engine change.
   const mods = fireDecrees(G, "allocate_supporters", playerID as FactionId, {});
   const k = Math.max(0, CONFIG.supporter_allocate_k + mods.alloc_delta);
   const inPlay = new Set(allDecreesInPlay(G).map((d) => d.id));
   let placed = 0;
   for (const id of placements ?? []) {
     if (placed >= k || w.supporters <= 0) break;
-    if (!inPlay.has(id)) continue; // can only shield a decree on the table
+    if (!inPlay.has(id)) continue; // can only support a decree on the table
     w.supporters -= 1;
-    G.shields[id] = (G.shields[id] ?? 0) + 1;
+    G.support[id] = (G.support[id] ?? 0) + 1;
     placed += 1;
   }
   if (placed === 0) return INVALID_MOVE; // nothing happened — not a legal action
-  G.log.push(`white allocates ${placed} supporter(s) as shields`);
+  G.log.push(`white supports ${placed} decree-slot(s)`);
 };
 
 function growUnits(
@@ -342,36 +329,26 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
   if (idx === -1) return INVALID_MOVE;
   p.zealots -= cost;
 
-  // Shields absorb the strike: if the decree carries supporters, strip `strip` of them and
-  // the decree survives. Red must grind shields to 0 before a strike can remove the decree.
+  // Support absorbs the strike: if the decree has supporters on it, strip `strip` of them
+  // and the decree survives. Red must grind support to 0 before a strike can remove it.
   // strip = base 1 + decree delta — so a Red decree could make strikes hit harder (+), or a
-  // White "resilience" decree could blunt them (−), e.g. "a strike removes one fewer shield".
-  const shields = G.shields[decreeId] ?? 0;
-  if (shields > 0) {
+  // White "resilience" decree could blunt them (−), e.g. "a strike removes one fewer".
+  const support = G.support[decreeId] ?? 0;
+  if (support > 0) {
     const strip = Math.max(0, 1 + mods.shield_strip_delta);
-    const left = Math.max(0, shields - strip);
-    if (left === 0) delete G.shields[decreeId];
-    else G.shields[decreeId] = left;
+    const left = Math.max(0, support - strip);
+    if (left === 0) delete G.support[decreeId];
+    else G.support[decreeId] = left;
     G.log.push(
-      `${playerKey(me)} strikes decree '${decreeId}': −${shields - left} shield (${left} left), decree holds (−${cost} zealot)`,
+      `${playerKey(me)} strikes decree '${decreeId}': −${support - left} support (${left} left), decree holds (−${cost} zealot)`,
     );
     return;
   }
 
-  // No shields left → remove the decree.
+  // No support left → remove the decree.
   G[playerKey(opp)].decreesInPlay.splice(idx, 1);
-  // If no copy of this decree id remains in play, any White marker on it returns to the
-  // pool (the platform White was defending is gone).
   const stillInPlay = allDecreesInPlay(G).some((d) => d.id === decreeId);
-  if (!stillInPlay) {
-    const mi = G.marks.indexOf(decreeId);
-    if (mi >= 0) {
-      G.marks.splice(mi, 1);
-      G.whiteMarkers += 1;
-      G.log.push(`  · white's marker on '${decreeId}' returns to pool`);
-    }
-    delete G.shields[decreeId]; // tidy any stray shield entry
-  }
+  if (!stillInPlay) delete G.support[decreeId]; // tidy any stray entry
   G.log.push(
     `${playerKey(me)} strikes decree '${decreeId}' off ${playerKey(opp)}'s board (−${cost} zealot, +0 Mandate)`,
   );
@@ -433,9 +410,7 @@ export const MandateGame: Game<GameState> = {
       mandate: { [WHITE]: 0, [RED]: 0 },
       white,
       red,
-      whiteMarkers: CONFIG.white.markers,
-      marks: [],
-      shields: {},
+      support: {},
       log: [`--- game start, target = ${CONFIG.mandate_target} ---`],
     };
   },
@@ -455,7 +430,6 @@ export const MandateGame: Game<GameState> = {
 
   moves: {
     enactDecree,
-    mark,
     allocateSupporters,
     rallySupporters,
     musterZealots,
@@ -479,7 +453,45 @@ export const MandateGame: Game<GameState> = {
       return { winner: w > r ? WHITE : RED };
     }
   },
+
+  // For boardgame.io's bots (RandomBot / MCTSBot): every concrete legal move from a state.
+  // Kept small so MCTS's branching factor stays tractable — notably allocate_supporters is
+  // enumerated as "all K onto ONE decree" (one option per in-play decree) rather than every
+  // distribution, which is the strategically meaningful choice without combinatorial blowup.
+  ai: {
+    enumerate: (G, ctx) => enumerateMoves(G, ctx),
+  },
 };
+
+function enumerateMoves(G: GameState, ctx: { currentPlayer: string }): AiEnumerate {
+  const out: AiEnumerate = [];
+  const seat = ctx.currentPlayer as FactionId;
+  const inPlay = allDecreesInPlay(G).map((d) => d.id);
+
+  // enact_decree: one option per distinct card in hand the seat could enact.
+  if (canDo(seat, "enact_decree")) {
+    for (const id of new Set(G[playerKey(seat)].hand)) out.push({ move: "enactDecree", args: [id] });
+  }
+  // allocate_supporters: all-K-onto-one-decree, one option per in-play decree (if stock>0).
+  if (canDo(seat, "allocate_supporters") && G.white.supporters > 0) {
+    const k = CONFIG.supporter_allocate_k;
+    for (const id of inPlay) out.push({ move: "allocateSupporters", args: [Array(k).fill(id)] });
+  }
+  if (canDo(seat, "deliberate") && G[playerKey(seat)].deck.length > 0) out.push({ move: "deliberate" });
+  if (canDo(seat, "rally_supporters")) out.push({ move: "rallySupporters" });
+  if (canDo(seat, "muster_zealots")) out.push({ move: "musterZealots" });
+  // strike: Mandate, or any opponent decree, if affordable.
+  if (canDo(seat, "strike") && G[playerKey(seat)].zealots >= strikeCost(G)) {
+    out.push({ move: "strikeMandate" });
+    const opp = opponentOf(seat);
+    for (const id of new Set(G[playerKey(opp)].decreesInPlay)) {
+      out.push({ move: "strikeDecree", args: [id] });
+    }
+  }
+  // Always allow ending the turn (lets a bot pass rather than be forced into a bad move).
+  if (out.length === 0) out.push({ event: "endTurn" });
+  return out;
+}
 
 // Re-exported for the board UI (preview strike cost / availability).
 export { strikeCost, decreeStrikeCost, canDo, verbsFor };

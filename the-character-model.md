@@ -64,7 +64,7 @@ emphasis is strategic. (See `running-the-wheel.md`.)
 
 | verb | colours | reaches | role |
 |---|---|---|---|
-| `mark` | W | White | White's signature — place a platform marker on a decree (see below) |
+| `allocate_supporters` | W | White | White's signature — place up to K supporters on decrees as *support* (see below) |
 | `enact_decree` | W, U, G | White (Blue, Green later) | shared — install a standing table rule |
 | `deliberate` | W | White | draw 1 from own deck (decree deck for now) |
 | `rally_supporters` | W, G | White, Green | G–W community edge → +supporters |
@@ -80,38 +80,45 @@ though no Blue character exists yet), Red **RG**. B is still dark (no B-tagged v
 shards fill in automatically as verbs are added — they are nothing but the footprint of the
 verb tags.
 
-## Enact is shared; White's real signature is `mark`
+## Enact is shared; White's signature is `support` (one concept: scores AND defends)
 
 A key correction over earlier drafts: **`enact_decree` is NOT White's signature.** Governance
 has multiple colour-theories, so enacting decrees is **shared across {W,U,G}** — and the three
 enactors have genuinely different *reasons* to play a decree (the thing that makes a shared verb
 interesting rather than generic):
 
-- **White** plays decrees to have a *platform to back* — it scores off them (via `mark`).
+- **White** plays decrees to have a *platform to back* — it scores off them (by supporting).
 - **Blue** plays decrees as a **tempo bet** — "I benefit if everyone is drawing faster *right
   now*" — a technocratic, governance-as-optimization read.
 - **Green** plays decrees to **stabilise the board** — religious dogma that slows the game so
   Green has more time to assemble its win condition.
 
-**White's signature is `mark`:** it places a fixed pool of white tokens (`white.markers`,
-currently 3) onto decrees on the table — *detecting where the political winds blow and adopting a
-platform to defend.* **White scores only when a *marked* decree "bites."** A decree bites when
-its *output fires*: a rider is **complied with** (someone took the "may"), or an always-clause
-effect takes hold. If the player declines the rider, nothing fired, so no bite. A token returns
-to the pool when its decree leaves play (so destroying a marked decree denies White the score and
-frees White's token — which creates real incentives, e.g. White protecting its marked decrees, or
-even wanting to re-stake as the board shifts).
+**White's signature is `allocate_supporters` — "support a decree":** it places up to **K** of its
+supporters (from the loose stock grown by `rally_supporters`) onto decrees on the table. A
+**supported** decree (≥1 supporter) does *two* things at once — this single concept replaces the
+earlier separate "markers" (scoring) and "shields" (defense):
+
+1. **Scores White** when it *bites* — i.e. when its output fires: a rider **complied with**
+   (someone took the "may"), or an always-clause effect takes hold. Flat amount, *not*
+   proportional to supporter count — White isn't populism; more base = more entrenched, not more
+   points.
+2. **Defends the decree** — a Red strike strips one supporter before it can remove the decree;
+   the decree only falls when struck at 0 support. So count = durability.
+
+One investment (where White puts its legitimacy) simultaneously turns scoring *on* and makes the
+platform hard to tear down. *Detecting where the winds blow and committing your base to a
+platform.* The K-per-action ("K placements in a trenchcoat") gives White's two actions/turn real
+strategic weight without more actions; K itself is decree-modifiable (`alloc_delta`).
 
 This is a textbook **positional mechanic** (the north star below): the decrees are one shared
-pool, but White's marking gives a subset a second valence only White sees and scores from. It
-also cleanly **decouples who plays decrees (anyone in W,U,G) from who scores off them (White, by
-marking)** — making decrees a true shared substrate, as the brief always wanted.
+pool, but White's support gives a subset a second valence only White sees and scores from. It
+**decouples who plays decrees (anyone in W,U,G) from who scores off them (White, by supporting)**
+— making decrees a true shared substrate, as the brief always wanted.
 
-**Decrees pay no one for ownership.** The only Mandate a decree generates is White's, via marks.
-(Two framings of the `mark` verb are both interesting and the engine should support both: (a)
-*commitment* — a token sticks to its decree until the decree is destroyed; (b) *reallocation* —
-the verb moves tokens freely from pool or among decrees. Current build is the simpler (a)-ish
-version: place from pool, returns on destruction. Revisit when it matters.)
+**Decrees pay no one for ownership.** The only Mandate a decree generates is White's, via support.
+(Markers and shields were two parallel abstractions; collapsing them into one "support" concept
+is a complexity cut — one verb, one state field, one token type. A future `support` variant could
+allow free reallocation between decrees; current build places from stock, strips on strike.)
 
 ## The unit economy: two currencies from the two green edges
 
@@ -163,13 +170,13 @@ installed decree may
   `rally yields +1`), with no choice;
 - offer the acting player a **rider** — the "may" (e.g. "you *may* draw +1") — a genuine choice.
 
-The decree's **`score`** field is what **White** earns *if it has marked that decree* and the
-output bites (see "Enact is shared; White's real signature is `mark`" above): on *compliance*
-(rider taken) or *always*. White's theory of victory is **legitimacy**: it doesn't act for
-points, it skims Mandate when others act under the rules it chose to back. (Engine-verified:
-unmarked `open_records` scores nothing on a rally; marked, it pays White +1 each rally — see
-`gui/sim/engine.test.ts`.) The rider/compliance choice is modelled but currently auto-accepted
-(greedy); smarter policies are a hook (`wantsRider` in `game.ts`).
+The decree's **`score`** field is what **White** earns *if it has supported that decree* (≥1
+supporter on it) and the output bites (see "Enact is shared; White's signature is `support`"
+above): on *compliance* (rider taken) or *always*. White's theory of victory is **legitimacy**:
+it doesn't act for points, it skims Mandate when others act under the rules it chose to back.
+(Engine-verified: unsupported `open_records` scores nothing on a rally; supported, it pays White
++1 each rally — see `gui/sim/engine.test.ts`.) The rider/compliance choice is modelled but
+currently auto-accepted (greedy); smarter policies are a hook (`wantsRider` in `game.ts`).
 
 The decree *pipeline shape* is stable; the *vocabulary* of triggers/effects is the small,
 deliberately-extensible part. Growing the decree set = adding rows + occasionally a new trigger

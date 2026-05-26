@@ -2,20 +2,22 @@
 // distribution. The "find a parameter band where neither has a trivially dominant
 // clock" tool (brief §10). Edit numbers in src/config.ts, re-run.
 //
-//   npm run sim                 # 200 games
-//   npm run sim -- -n 1000      # 1000 games
+//   npm run sim                      # 200 scripted-bot games (fast)
+//   npm run sim -- -n 1000           # more games
+//   npm run sim -- --mcts -n 40      # MCTS-vs-MCTS (slow, measures the GAME not heuristics)
+//   npm run sim -- --mcts --iters 300 -n 30
 //
-// Note: MandateGame.setup seeds its deck shuffle from boardgame.io's RNG, which is
-// fresh per Client — so games already vary run-to-run. (A fixed-seed mode would need
-// threading a seed through Client setupData; not needed for distribution reads.)
+// Scripted bots answer "does strategy X beat Y?"; MCTS answers "with strong play, who
+// wins?" — i.e. is the GAME balanced, independent of our hand-written heuristics. MCTS is
+// much slower (hundreds of playouts per move), so use small N.
 
-import { runGame, BASELINE_POLICIES } from "./driver";
+import { runGame, runGameMCTS, BASELINE_POLICIES, type GameResult } from "./driver";
 import { CONFIG, WHITE, RED, FACTION_NAME, type FactionId } from "../src/config";
 
-function parseN(argv: string[]): number {
-  const i = argv.indexOf("-n");
-  if (i >= 0 && argv[i + 1]) return Math.max(1, parseInt(argv[i + 1], 10) || 200);
-  return 200;
+function flagInt(argv: string[], flag: string, dflt: number): number {
+  const i = argv.indexOf(flag);
+  if (i >= 0 && argv[i + 1]) return Math.max(1, parseInt(argv[i + 1], 10) || dflt);
+  return dflt;
 }
 
 function median(xs: number[]): number {
@@ -24,20 +26,29 @@ function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
-function main() {
-  const n = parseN(process.argv.slice(2));
+async function main() {
+  const argv = process.argv.slice(2);
+  const mcts = argv.includes("--mcts");
+  const n = flagInt(argv, "-n", mcts ? 40 : 200);
+  const iters = flagInt(argv, "--iters", 200);
+
   const wins: Record<string, number> = { [WHITE]: 0, [RED]: 0, draw: 0, none: 0 };
   const turns: number[] = [];
 
   for (let i = 0; i < n; i++) {
-    const r = runGame(BASELINE_POLICIES);
+    const r: GameResult = mcts
+      ? await runGameMCTS({ iterations: iters })
+      : runGame(BASELINE_POLICIES);
     const key = r.winner === null ? "none" : r.winner;
     wins[key] = (wins[key] ?? 0) + 1;
     turns.push(r.turns);
+    if (mcts) process.stdout.write("."); // progress, since MCTS is slow
   }
+  if (mcts) process.stdout.write("\n");
 
   const pct = (c: number) => `${((100 * c) / n).toFixed(1)}%`;
-  console.log(`\n=== ${n} games · target ${CONFIG.mandate_target} · baseline bots ===`);
+  const bots = mcts ? `MCTS bots (${iters} iters)` : "baseline scripted bots";
+  console.log(`\n=== ${n} games · target ${CONFIG.mandate_target} · ${bots} ===`);
   for (const f of [WHITE, RED] as FactionId[]) {
     console.log(`  ${FACTION_NAME[f].padEnd(18)} ${String(wins[f]).padStart(5)} (${pct(wins[f])})`);
   }

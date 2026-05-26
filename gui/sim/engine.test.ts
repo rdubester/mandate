@@ -131,18 +131,22 @@ describe("two-currency economy", () => {
 
 // ---- decrees: shared verb + White's mark-scoring ---------------------------
 
-// Drive legal moves until White has `decree` in play, leaving it White's turn with
-// an action to spare. Red just musters (scores nothing, can't end the game first).
-// Advance (Red just musters) until it's White's turn with no moves used yet — a clean
-// slate to test a 2-action White sequence.
+// Advance until it's White's turn with no moves used yet — a clean slate to test a
+// 2-action White sequence. White burns time with `deliberate` (no resource side-effects,
+// unlike rally which would pollute the supporter stock) when its deck has cards, else
+// rally as a fallback. Red just musters (scores nothing, can't end the game first).
 function freshWhiteTurn(c: ReturnType<typeof newClient>): void {
   for (let guard = 0; guard < 50; guard++) {
     const s = c.getState()!;
     if (s.ctx.gameover) return;
     if (s.ctx.currentPlayer === WHITE && (s.ctx.numMoves ?? 0) === 0) return;
     c.updatePlayerID(s.ctx.currentPlayer);
-    if (s.ctx.currentPlayer === WHITE) c.moves.rallySupporters();
-    else c.moves.musterZealots();
+    if (s.ctx.currentPlayer === WHITE) {
+      if (s.G.white.deck.length > 0) c.moves.deliberate();
+      else c.moves.rallySupporters();
+    } else {
+      c.moves.musterZealots();
+    }
   }
 }
 
@@ -168,51 +172,56 @@ describe("enact_decree is now SHARED (governance trio), not White's signature", 
   it("Red (R) still cannot enact decrees", () => {
     expect(canDo(RED, "enact_decree")).toBe(false);
   });
-  it("White (W) can enact and can mark", () => {
+  it("White (W) can enact and support; Red cannot", () => {
     expect(canDo(WHITE, "enact_decree")).toBe(true);
-    expect(canDo(WHITE, "mark")).toBe(true);
-    expect(canDo(RED, "mark")).toBe(false);
+    expect(canDo(WHITE, "allocate_supporters")).toBe(true);
+    expect(canDo(RED, "allocate_supporters")).toBe(false);
+    expect(canDo(RED, "enact_decree")).toBe(false);
   });
 });
 
-describe("White mark-scoring: only marked decrees bite", () => {
-  it("UNMARKED open_records does NOT score White when a player rallies", () => {
+describe("White support-scoring: only supported decrees bite (markers+shields collapsed)", () => {
+  it("UNSUPPORTED open_records does NOT score White when a player rallies", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     freshWhiteTurn(c);
     seatTo(c, WHITE);
-    expect(c.getState()!.G.marks).not.toContain("open_records"); // confirm unmarked
+    expect(c.getState()!.G.support["open_records"] ?? 0).toBe(0); // confirm unsupported
     const m0 = c.getState()!.G.mandate[WHITE];
     c.moves.rallySupporters();
-    expect(c.getState()!.G.mandate[WHITE]).toBe(m0); // unmarked = worthless
+    expect(c.getState()!.G.mandate[WHITE]).toBe(m0); // unsupported = worthless
     c.stop();
   });
 
-  it("MARKED open_records scores White +1 on each rally (always clause)", () => {
+  it("SUPPORTED open_records scores White +1 on each rally (always clause)", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
-    freshWhiteTurn(c); // ensure two clean actions: mark, then rally
+    // Need a supporter in stock to place. Rally once, then support, then rally to bite.
+    freshWhiteTurn(c);
     seatTo(c, WHITE);
-    const markers0 = c.getState()!.G.whiteMarkers;
-    c.moves.mark("open_records"); // action 1: spend a marker
-    expect(c.getState()!.G.whiteMarkers).toBe(markers0 - 1);
-    expect(c.getState()!.G.marks).toContain("open_records");
+    c.moves.rallySupporters(); // action 1: +1 supporter to stock
+    c.moves.allocateSupporters(["open_records"]); // action 2: place support (scores it on)
+    expect(c.getState()!.G.support["open_records"]).toBe(1);
+    // New White turn: rally → supported open_records bites +1.
+    freshWhiteTurn(c);
+    seatTo(c, WHITE);
     const m0 = c.getState()!.G.mandate[WHITE];
-    c.moves.rallySupporters(); // action 2: marked decree bites
+    c.moves.rallySupporters();
     expect(c.getState()!.G.mandate[WHITE]).toBe(m0 + 1);
     c.stop();
   });
 
-  it("mark is rejected when no markers are free", () => {
+  it("allocate places no more than the available stock", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    freshWhiteTurn(c);
     seatTo(c, WHITE);
-    // Drain the marker pool by marking the same/other decrees until empty, then a
-    // further mark must be a no-op. Simplest: mark open_records, then try again.
-    c.moves.mark("open_records");
-    const marks1 = [...c.getState()!.G.marks];
-    c.moves.mark("open_records"); // already marked → rejected
-    expect(c.getState()!.G.marks).toEqual(marks1);
+    const stock = c.getState()!.G.white.supporters;
+    const before = c.getState()!.G.support["open_records"] ?? 0;
+    // Try to place K supporters; engine caps at stock (and K).
+    c.moves.allocateSupporters(Array(CONFIG.supporter_allocate_k).fill("open_records"));
+    const placed = (c.getState()!.G.support["open_records"] ?? 0) - before;
+    expect(placed).toBe(Math.min(stock, CONFIG.supporter_allocate_k));
     c.stop();
   });
 

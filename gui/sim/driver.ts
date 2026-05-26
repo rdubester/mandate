@@ -75,36 +75,31 @@ export function runGame(
 // it anyway, but this keeps policies honest and self-documenting).
 
 const whitePolicy: Policy = (G, seat) => {
-  // White wins by MARKED decrees biting, and defends them with shields so Red can't
-  // cheaply remove them. Priority: enact a scoring decree → mark it → shield marked
-  // decrees (especially threatened ones) → dig/rally for fuel.
+  // White wins by SUPPORTED decrees biting; support both scores and defends (one concept).
+  // Priority: get a scoring decree into play → put support on it (scores + shields it) →
+  // pile more support to keep it alive → dig for more decrees.
+  const inPlay = G.white.decreesInPlay;
+  const scoringInPlay = inPlay.filter((id) => DECREES[id]?.score);
   const scoringInHand = G.white.hand.find((id) => DECREES[id]?.score);
-  if (canDo(seat, "enact_decree") && scoringInHand) {
+
+  // Enact a scoring decree if none are in play yet.
+  if (canDo(seat, "enact_decree") && scoringInPlay.length === 0 && scoringInHand) {
     return { move: "enactDecree", args: [scoringInHand] };
   }
-  // Mark an in-play scoring decree we haven't marked yet.
-  if (canDo(seat, "mark") && G.whiteMarkers > 0) {
-    const markable = G.white.decreesInPlay.find(
-      (id) => !G.marks.includes(id) && DECREES[id]?.score,
-    );
-    if (markable) return { move: "mark", args: [markable] };
+  // Support a scoring decree (turns scoring on if unsupported; else reinforces the
+  // most-exposed one). Pile this turn's K onto a single decree (engine caps at K/stock).
+  if (canDo(seat, "allocate_supporters") && G.white.supporters > 0 && scoringInPlay.length > 0) {
+    const target = [...scoringInPlay].sort(
+      (a, b) => (G.support[a] ?? 0) - (G.support[b] ?? 0),
+    )[0];
+    return { move: "allocateSupporters", args: [Array(CONFIG.supporter_allocate_k).fill(target)] };
   }
-  // Shield marked decrees (defend the scoring engine): pile this turn's K onto the
-  // marked decree with the fewest shields. allocate_supporters caps internally at K/stock.
-  if (canDo(seat, "allocate_supporters") && G.white.supporters > 0) {
-    const targets = G.marks.filter((id) => G.white.decreesInPlay.includes(id));
-    if (targets.length > 0) {
-      targets.sort((a, b) => (G.shields[a] ?? 0) - (G.shields[b] ?? 0));
-      // Stage K shields on the most-exposed marked decree (driver picks one; engine caps).
-      const k = CONFIG.supporter_allocate_k;
-      return { move: "allocateSupporters", args: [Array(k).fill(targets[0])] };
-    }
+  // Need supporters to support with, or more decrees to support.
+  if (scoringInPlay.length > 0 && G.white.supporters === 0 && canDo(seat, "rally_supporters")) {
+    return { move: "rallySupporters" };
   }
-  // Fuel: rally if we have marked decrees to defend but no supporters; else dig.
-  const needSupporters = G.marks.length > 0 && G.white.supporters === 0;
-  if (needSupporters && canDo(seat, "rally_supporters")) return { move: "rallySupporters" };
-  if (canDo(seat, "enact_decree") && G.white.hand.length > 0) {
-    return { move: "enactDecree", args: [G.white.hand[0]] };
+  if (canDo(seat, "enact_decree") && scoringInHand) {
+    return { move: "enactDecree", args: [scoringInHand] };
   }
   if (canDo(seat, "deliberate") && G.white.deck.length > 0) return { move: "deliberate" };
   if (canDo(seat, "rally_supporters")) return { move: "rallySupporters" };
@@ -112,13 +107,15 @@ const whitePolicy: Policy = (G, seat) => {
 };
 
 const redPolicy: Policy = (G, seat) => {
-  // Red's oppressive job: tear down White's SCORING decrees (marked ones) — but each strike
-  // costs a zealot + action and must grind through shields, so it's a real tempo investment,
-  // not a free 'no' button. Heuristic: if White has a marked scoring decree, dismantle it
-  // (strike it down); else race the Mandate track; else muster.
+  // Red's oppressive job: tear down White's SUPPORTED scoring decrees — but each strike
+  // costs a zealot + action and must grind through support, so it's a real tempo
+  // investment, not a free 'no' button. Heuristic: if White has a supported scoring decree,
+  // dismantle it; else race the Mandate track; else muster.
   const canStrikeNow = canDo(seat, "strike") && G.red.zealots >= strikeCost(G);
   if (canStrikeNow) {
-    const threat = G.marks.find((id) => G.white.decreesInPlay.includes(id));
+    const threat = G.white.decreesInPlay.find(
+      (id) => (G.support[id] ?? 0) > 0 && DECREES[id]?.score,
+    );
     if (threat) return { move: "strikeDecree", args: [threat] };
     return { move: "strikeMandate" };
   }
@@ -132,3 +129,39 @@ export const BASELINE_POLICIES: Record<FactionId, Policy> = {
 };
 
 export { SEATS };
+
+// ---- MCTS games ------------------------------------------------------------
+// boardgame.io's MCTSBot plays the position (via the game's ai.enumerate + the real
+// reducer) instead of a hand-written script — so its win-rates measure the GAME's
+// balance, not our heuristics. Slower (hundreds of playouts per move). Uses Simulate
+// to run a full game from the initial state with an MCTSBot per seat.
+
+export async function runGameMCTS(
+  opts: { iterations?: number; playoutDepth?: number } = {},
+): Promise<GameResult> {
+  // Lazy-import the ai + internal entry points (only needed for MCTS runs).
+  const { MCTSBot, Simulate } = await import("boardgame.io/ai");
+  const { InitializeGame } = await import("boardgame.io/internal");
+
+  const enumerate = MandateGame.ai!.enumerate;
+  const iterations = opts.iterations ?? 200;
+  const playoutDepth = opts.playoutDepth ?? 50;
+  const makeBot = () =>
+    new MCTSBot({ game: MandateGame, enumerate, iterations, playoutDepth });
+
+  const state = InitializeGame({ game: MandateGame, numPlayers: 2 });
+  const { state: final } = await Simulate({
+    game: MandateGame,
+    bots: { [WHITE]: makeBot(), [RED]: makeBot() } as Record<string, InstanceType<typeof MCTSBot>>,
+    state,
+  });
+
+  const G = final.G as GameState;
+  const over = final.ctx.gameover;
+  return {
+    winner: over ? (over.draw ? "draw" : (over.winner as FactionId)) : null,
+    turns: final.ctx.turn,
+    mandate: { [WHITE]: G.mandate[WHITE], [RED]: G.mandate[RED] } as Record<FactionId, number>,
+    log: G.log,
+  };
+}
