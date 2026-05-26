@@ -1,5 +1,5 @@
 import type { BoardProps } from "boardgame.io/react";
-import { strikeCost, canDo, allDecreesInPlay, type GameState } from "./game";
+import { strikeCost, decreeStrikeCost, canDo, allDecreesInPlay, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
 
 type Props = BoardProps<GameState>;
@@ -166,11 +166,11 @@ export function MandateBoard(props: Props) {
             )}
             {canDo(RED, "strike") && G.white.decreesInPlay.length > 0 && (
               <div className="strike-decree-group">
-                <span>Strike a decree:</span>
+                <span>Remove a decree (cost {decreeStrikeCost(G)}, +0 Mandate):</span>
                 {G.white.decreesInPlay.map((id, i) => (
                   <button
                     key={i}
-                    disabled={!canStrike}
+                    disabled={G.red.zealots < decreeStrikeCost(G)}
                     onClick={() => moves.strikeDecree(id)}
                   >
                     {DECREES[id]?.name ?? id}

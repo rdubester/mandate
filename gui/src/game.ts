@@ -164,13 +164,25 @@ function drawCards(
   return drawn;
 }
 
-function strikeCost(G: GameState): number {
+// Ambient zealot-cost delta from decrees hooking 'strike' (e.g. martial_restraint +1).
+function strikeCostDelta(G: GameState): number {
   let delta = 0;
   for (const { id } of allDecreesInPlay(G)) {
     const spec = DECREES[id];
     if (spec?.trigger.on === "strike") delta += spec.effect?.cost_delta ?? 0;
   }
-  return CONFIG.scoring.strike_landed.zealot_cost + delta;
+  return delta;
+}
+
+// Zealot cost to strike the Mandate track (base + ambient delta). Used by Board/driver
+// to preview affordability.
+function strikeCost(G: GameState): number {
+  return CONFIG.scoring.strike_landed.zealot_cost + strikeCostDelta(G);
+}
+
+// Zealot cost to remove a decree (a separate, sweepable lever; yields 0 Mandate).
+function decreeStrikeCost(G: GameState): number {
+  return CONFIG.scoring.strike_landed.decree_strike_zealot_cost + strikeCostDelta(G);
 }
 
 // Guard shared by every move: right player, their turn, and their colour can do
@@ -263,12 +275,18 @@ const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
   );
 };
 
+// Strike a decree = pure removal. Costs decree_strike_zealot_cost (+ ambient delta) and
+// an action, and yields NO Mandate. Red spends tempo/ammo dealing with threats instead
+// of racing the Mandate track — that is how decrees slow Red, not how Red scores.
 const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) => {
   if (!playerID || !canAct(playerID, ctx, "strike")) return INVALID_MOVE;
   const me = playerID as FactionId;
   const opp = opponentOf(me);
   const mods = fireDecrees(G, "strike", me, { target: "decree" });
-  const cost = Math.max(0, CONFIG.scoring.strike_landed.zealot_cost + mods.cost_delta);
+  const cost = Math.max(
+    0,
+    CONFIG.scoring.strike_landed.decree_strike_zealot_cost + mods.cost_delta,
+  );
   const p = G[playerKey(me)];
   if (p.zealots < cost) return INVALID_MOVE;
   const idx = G[playerKey(opp)].decreesInPlay.indexOf(decreeId);
@@ -286,9 +304,8 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
       G.log.push(`  · white's marker on '${decreeId}' returns to pool`);
     }
   }
-  G.mandate[me] += CONFIG.scoring.strike_landed.mandate_per_strike;
   G.log.push(
-    `${playerKey(me)} strikes decree '${decreeId}' off ${playerKey(opp)}'s board: +${CONFIG.scoring.strike_landed.mandate_per_strike} Mandate`,
+    `${playerKey(me)} strikes decree '${decreeId}' off ${playerKey(opp)}'s board (−${cost} zealot, +0 Mandate)`,
   );
 };
 
@@ -395,4 +412,4 @@ export const MandateGame: Game<GameState> = {
 };
 
 // Re-exported for the board UI (preview strike cost / availability).
-export { strikeCost, canDo, verbsFor };
+export { strikeCost, decreeStrikeCost, canDo, verbsFor };

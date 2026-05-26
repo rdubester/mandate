@@ -47,7 +47,7 @@ export const CONFIG = {
     draw_per_turn: 0,
     starting_hand: 0,
     starting_supporters: 0,
-    starting_zealots: 3,
+    starting_zealots: 0,
     deck: null,
     scoring: "strike_landed",
   },
@@ -56,6 +56,11 @@ export const CONFIG = {
   //   supporters = G–W community (soft STOCK, White's edict fuel)
   //   zealots    = G–R authenticity (hard FLOW, spent on direct actions)
   // No soldiers. White (GWU) has no R, so it can NEVER muster zealots.
+  // Red's ECONOMY is its brake, not its strike value (sim 2026-05-26): the old start-3
+  // was wildly OP (decrees never survived a turn). Tuned to start-0/+2-per-turn so Red
+  // must muster before it can act (a natural slow open) and strikes ~every other turn
+  // early. Found via sweep: this + strike-4 gives ≈52/48 W/R, mean ~60 turns. Red
+  // acceleration is a future lever; muster yield is the dominant knob (muster=1 → W 100%).
   unit_yield: {
     rally_supporters: 1,
     muster_zealots: 2,
@@ -64,8 +69,14 @@ export const CONFIG = {
   scoring: {
     decree_bite: { mandate_per_bite: 1 },
     strike_landed: {
-      mandate_per_strike: 3,
-      zealot_cost: 1,
+      // Red scores Mandate ONLY by striking the Mandate track. Striking a decree yields
+      // NO Mandate — it's pure removal. Theme: White doesn't win by tearing structures
+      // down; it wins by freedom to pursue its own thing. So decrees are a TAX on Red's
+      // tempo (a zealot + an action spent dealing with threats instead of racing), not a
+      // source of points for Red. decree_strike_zealot_cost is a sweepable lever (try 0+).
+      mandate_per_strike: 4,
+      zealot_cost: 1, // cost to strike the Mandate track
+      decree_strike_zealot_cost: 1, // cost to remove a decree (yields 0 Mandate)
       marker_knockback: 2,
     },
   },

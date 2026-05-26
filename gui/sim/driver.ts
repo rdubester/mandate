@@ -97,12 +97,11 @@ const whitePolicy: Policy = (G, seat) => {
 };
 
 const redPolicy: Policy = (G, seat) => {
-  // Strike a decree (denial + score) if affordable and one exists; else strike
-  // Mandate; else muster zealots to afford the next strike.
+  // Decree-strikes no longer score, so the baseline bot races: strike the Mandate track
+  // whenever it can afford it, else muster to afford the next one. It does NOT remove
+  // decrees (that's pure tempo loss for a dumb policy) — clearing threats is a strategic
+  // choice a smarter policy would weigh, and exactly the lever we want the sim to probe.
   const canAffordStrike = canDo(seat, "strike") && G.red.zealots >= strikeCost(G);
-  if (canAffordStrike && G.white.decreesInPlay.length > 0) {
-    return { move: "strikeDecree", args: [G.white.decreesInPlay[0]] };
-  }
   if (canAffordStrike) return { move: "strikeMandate" };
   if (canDo(seat, "muster_zealots")) return { move: "musterZealots" };
   return null;

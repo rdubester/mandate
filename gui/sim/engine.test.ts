@@ -97,9 +97,18 @@ describe("two-currency economy", () => {
     expect(G(c).red.supporters).toBe(0);
   });
 
-  it("strike spends a zealot and scores per config", () => {
+  it("Mandate-strike spends a zealot and scores per config", () => {
     const c = newClient();
-    // advance to Red's turn: White takes 2 moves, then Red acts.
+    // White takes its 2 moves; then Red musters (now starts at 0 zealots) to afford a
+    // strike, ending its turn. Next Red turn it musters again then strikes.
+    seatTo(c, WHITE);
+    c.moves.rallySupporters();
+    c.moves.rallySupporters();
+    expect(active(c)).toBe(RED);
+    seatTo(c, RED);
+    c.moves.musterZealots(); // +2 zealots (action 1)
+    c.moves.musterZealots(); // +2 (action 2) → turn ends with a stockpile
+    // back to Red after White's turn
     seatTo(c, WHITE);
     c.moves.rallySupporters();
     c.moves.rallySupporters();
@@ -111,12 +120,32 @@ describe("two-currency economy", () => {
     expect(G(c).red.zealots).toBe(z0 - CONFIG.scoring.strike_landed.zealot_cost);
     expect(G(c).mandate[RED]).toBe(m0 + CONFIG.scoring.strike_landed.mandate_per_strike);
   });
+
+  it("Red starts slow: 0 zealots, +2 per muster (balance pass 2026-05-26)", () => {
+    // Economy is Red's brake (must muster before acting); strike value stays punchy (4).
+    expect(CONFIG.red.starting_zealots).toBe(0);
+    expect(CONFIG.unit_yield.muster_zealots).toBe(2);
+    expect(CONFIG.scoring.strike_landed.mandate_per_strike).toBe(4);
+  });
 });
 
 // ---- decrees: shared verb + White's mark-scoring ---------------------------
 
 // Drive legal moves until White has `decree` in play, leaving it White's turn with
 // an action to spare. Red just musters (scores nothing, can't end the game first).
+// Advance (Red just musters) until it's White's turn with no moves used yet — a clean
+// slate to test a 2-action White sequence.
+function freshWhiteTurn(c: ReturnType<typeof newClient>): void {
+  for (let guard = 0; guard < 50; guard++) {
+    const s = c.getState()!;
+    if (s.ctx.gameover) return;
+    if (s.ctx.currentPlayer === WHITE && (s.ctx.numMoves ?? 0) === 0) return;
+    c.updatePlayerID(s.ctx.currentPlayer);
+    if (s.ctx.currentPlayer === WHITE) c.moves.rallySupporters();
+    else c.moves.musterZealots();
+  }
+}
+
 function driveUntilInPlay(c: ReturnType<typeof newClient>, decree: string): boolean {
   for (let guard = 0; guard < 300; guard++) {
     const s = c.getState()!;
@@ -150,8 +179,9 @@ describe("White mark-scoring: only marked decrees bite", () => {
   it("UNMARKED open_records does NOT score White when a player rallies", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
-    // It's White's turn with open_records in play but NOT marked. Rally → no score.
+    freshWhiteTurn(c);
     seatTo(c, WHITE);
+    expect(c.getState()!.G.marks).not.toContain("open_records"); // confirm unmarked
     const m0 = c.getState()!.G.mandate[WHITE];
     c.moves.rallySupporters();
     expect(c.getState()!.G.mandate[WHITE]).toBe(m0); // unmarked = worthless
@@ -161,6 +191,7 @@ describe("White mark-scoring: only marked decrees bite", () => {
   it("MARKED open_records scores White +1 on each rally (always clause)", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    freshWhiteTurn(c); // ensure two clean actions: mark, then rally
     seatTo(c, WHITE);
     const markers0 = c.getState()!.G.whiteMarkers;
     c.moves.mark("open_records"); // action 1: spend a marker
@@ -182,6 +213,28 @@ describe("White mark-scoring: only marked decrees bite", () => {
     const marks1 = [...c.getState()!.G.marks];
     c.moves.mark("open_records"); // already marked → rejected
     expect(c.getState()!.G.marks).toEqual(marks1);
+    c.stop();
+  });
+
+  it("striking a decree yields Red NO Mandate (pure removal, balance pass)", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    // It's White's turn; end it so Red can act with a zealot.
+    seatTo(c, WHITE);
+    c.moves.rallySupporters();
+    c.moves.deliberate();
+    expect(active(c)).toBe(RED);
+    seatTo(c, RED);
+    expect(c.getState()!.G.white.decreesInPlay).toContain("open_records");
+    if (c.getState()!.G.red.zealots < 1) c.moves.musterZealots(); // ensure affordable
+    const m0 = c.getState()!.G.mandate[RED];
+    const z0 = c.getState()!.G.red.zealots;
+    c.moves.strikeDecree("open_records");
+    expect(c.getState()!.G.white.decreesInPlay).not.toContain("open_records"); // removed
+    expect(c.getState()!.G.mandate[RED]).toBe(m0); // but +0 Mandate
+    expect(c.getState()!.G.red.zealots).toBe(
+      z0 - CONFIG.scoring.strike_landed.decree_strike_zealot_cost,
+    ); // still costs a zealot
     c.stop();
   });
 });
