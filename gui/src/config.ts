@@ -66,6 +66,12 @@ export const CONFIG = {
     muster_zealots: 2,
   },
 
+  // White's supporters DEFEND decrees: allocate up to K from the loose stock onto decrees
+  // as shields. A Red strike strips one shield before it can remove the decree, so White's
+  // legitimacy makes its platform expensive to tear down. K>1 means one White action is
+  // "K placements in a trenchcoat" — extra strategic depth per turn without more actions.
+  supporter_allocate_k: 3,
+
   scoring: {
     decree_bite: { mandate_per_bite: 1 },
     strike_landed: {
@@ -96,6 +102,7 @@ export interface VerbSpec {
   draws?: number;
   scores?: { who: "self"; amount: number; alsoKnocks?: number };
   marks?: boolean; // moves a White marker from pool onto a decree in play
+  allocates?: boolean; // moves up to K supporters from stock onto decrees (shields)
 }
 
 export const VERBS: VerbSpec[] = [
@@ -103,6 +110,9 @@ export const VERBS: VerbSpec[] = [
   // White scores when a MARKED decree's output fires (see decree_bite / fireDecrees).
   // Markers return to the pool when their decree leaves play.
   { name: "mark", colours: ["W"], marks: true },
+  // White {W}: allocate up to K supporters from stock onto decrees as shields (defends
+  // them from Red's strikes). One action distributes K — "K placements in a trenchcoat".
+  { name: "allocate_supporters", colours: ["W"], allocates: true },
   // Enact a decree (install a standing table rule). SHARED across the governance trio
   // {W,U,G}: White backs platforms, Blue plays tempo bets, Green stabilises the board.
   // Not a signature anymore. Red (R) cannot enact — only strike decrees away.
@@ -160,7 +170,18 @@ export interface Decree {
   type: DecreeType;
   text: string;
   trigger: { on: string; detail?: Record<string, string> };
-  effect?: { cost_delta?: number; yield_delta?: number; extra_draw?: number };
+  // Any of these deltas may be set; they flow through fireDecrees into the matching
+  // game number (see DecreeMods in game.ts). Add a field here + in DecreeMods to expose
+  // a new perturbable number — no other engine change.
+  effect?: {
+    cost_delta?: number;
+    yield_delta?: number;
+    extra_draw?: number;
+    alloc_delta?: number;
+    mandate_delta?: number;
+    knockback_delta?: number;
+    shield_strip_delta?: number;
+  };
   rider?: { effect: Record<string, number>; describe: string };
   score?: { when: "compliance" | "always"; amount: number }; // White's, only if marked
 }

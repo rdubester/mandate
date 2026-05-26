@@ -7,7 +7,7 @@
 import { Client } from "boardgame.io/client";
 import { MandateGame, strikeCost } from "../src/game";
 import type { GameState } from "../src/game";
-import { WHITE, RED, DECREES, canDo, type FactionId } from "../src/config";
+import { CONFIG, WHITE, RED, DECREES, canDo, type FactionId } from "../src/config";
 
 export interface MoveChoice {
   move: string; // a key of client.moves
@@ -75,34 +75,53 @@ export function runGame(
 // it anyway, but this keeps policies honest and self-documenting).
 
 const whitePolicy: Policy = (G, seat) => {
-  // White scores via MARKED decrees biting. So: mark an unmarked decree in play if it
-  // has a score and we have a free marker; else enact a scoring decree from hand; else
-  // dig with deliberate; else rally.
+  // White wins by MARKED decrees biting, and defends them with shields so Red can't
+  // cheaply remove them. Priority: enact a scoring decree → mark it → shield marked
+  // decrees (especially threatened ones) → dig/rally for fuel.
+  const scoringInHand = G.white.hand.find((id) => DECREES[id]?.score);
+  if (canDo(seat, "enact_decree") && scoringInHand) {
+    return { move: "enactDecree", args: [scoringInHand] };
+  }
+  // Mark an in-play scoring decree we haven't marked yet.
   if (canDo(seat, "mark") && G.whiteMarkers > 0) {
-    const markable = [...G.white.decreesInPlay, ...G.red.decreesInPlay].find(
+    const markable = G.white.decreesInPlay.find(
       (id) => !G.marks.includes(id) && DECREES[id]?.score,
     );
     if (markable) return { move: "mark", args: [markable] };
   }
+  // Shield marked decrees (defend the scoring engine): pile this turn's K onto the
+  // marked decree with the fewest shields. allocate_supporters caps internally at K/stock.
+  if (canDo(seat, "allocate_supporters") && G.white.supporters > 0) {
+    const targets = G.marks.filter((id) => G.white.decreesInPlay.includes(id));
+    if (targets.length > 0) {
+      targets.sort((a, b) => (G.shields[a] ?? 0) - (G.shields[b] ?? 0));
+      // Stage K shields on the most-exposed marked decree (driver picks one; engine caps).
+      const k = CONFIG.supporter_allocate_k;
+      return { move: "allocateSupporters", args: [Array(k).fill(targets[0])] };
+    }
+  }
+  // Fuel: rally if we have marked decrees to defend but no supporters; else dig.
+  const needSupporters = G.marks.length > 0 && G.white.supporters === 0;
+  if (needSupporters && canDo(seat, "rally_supporters")) return { move: "rallySupporters" };
   if (canDo(seat, "enact_decree") && G.white.hand.length > 0) {
-    // Prefer enacting a decree that can actually score when marked.
-    const scoring = G.white.hand.find((id) => DECREES[id]?.score) ?? G.white.hand[0];
-    return { move: "enactDecree", args: [scoring] };
+    return { move: "enactDecree", args: [G.white.hand[0]] };
   }
-  if (canDo(seat, "deliberate") && G.white.deck.length > 0) {
-    return { move: "deliberate" };
-  }
+  if (canDo(seat, "deliberate") && G.white.deck.length > 0) return { move: "deliberate" };
   if (canDo(seat, "rally_supporters")) return { move: "rallySupporters" };
   return null;
 };
 
 const redPolicy: Policy = (G, seat) => {
-  // Decree-strikes no longer score, so the baseline bot races: strike the Mandate track
-  // whenever it can afford it, else muster to afford the next one. It does NOT remove
-  // decrees (that's pure tempo loss for a dumb policy) — clearing threats is a strategic
-  // choice a smarter policy would weigh, and exactly the lever we want the sim to probe.
-  const canAffordStrike = canDo(seat, "strike") && G.red.zealots >= strikeCost(G);
-  if (canAffordStrike) return { move: "strikeMandate" };
+  // Red's oppressive job: tear down White's SCORING decrees (marked ones) — but each strike
+  // costs a zealot + action and must grind through shields, so it's a real tempo investment,
+  // not a free 'no' button. Heuristic: if White has a marked scoring decree, dismantle it
+  // (strike it down); else race the Mandate track; else muster.
+  const canStrikeNow = canDo(seat, "strike") && G.red.zealots >= strikeCost(G);
+  if (canStrikeNow) {
+    const threat = G.marks.find((id) => G.white.decreesInPlay.includes(id));
+    if (threat) return { move: "strikeDecree", args: [threat] };
+    return { move: "strikeMandate" };
+  }
   if (canDo(seat, "muster_zealots")) return { move: "musterZealots" };
   return null;
 };

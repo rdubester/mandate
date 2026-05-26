@@ -1,8 +1,12 @@
+import { useState } from "react";
 import type { BoardProps } from "boardgame.io/react";
 import { strikeCost, decreeStrikeCost, canDo, allDecreesInPlay, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
 
 type Props = BoardProps<GameState>;
+
+// What a click on a decree-in-play does, during White's turn.
+type WhiteMode = "mark" | "shield";
 
 function MandateBar({ value, target, color }: { value: number; target: number; color: string }) {
   const pct = Math.min(100, (value / target) * 100);
@@ -16,9 +20,27 @@ function MandateBar({ value, target, color }: { value: number; target: number; c
   );
 }
 
-function DecreeCard({ id, onClick, label }: { id: string; onClick?: () => void; label?: string }) {
+function DecreeCard({
+  id,
+  onClick,
+  label,
+  marked,
+  shields,
+  pending,
+}: {
+  id: string;
+  onClick?: () => void;
+  label?: string;
+  marked?: boolean;
+  shields?: number;
+  pending?: number;
+}) {
   const d = DECREES[id];
   if (!d) return <span className="card">{id}</span>;
+  const shieldStr =
+    (shields ?? 0) > 0 || (pending ?? 0) > 0
+      ? "●".repeat(shields ?? 0) + (pending ? `+${"●".repeat(pending)}` : "")
+      : "";
   return (
     <button
       className={`card decree ${d.type}`}
@@ -26,8 +48,14 @@ function DecreeCard({ id, onClick, label }: { id: string; onClick?: () => void; 
       disabled={!onClick}
       title={d.text}
     >
-      <div className="card-name">{d.name}</div>
-      <div className="card-type">{d.type}</div>
+      <div className="card-name">
+        {marked && "◆ "}
+        {d.name}
+      </div>
+      <div className="card-type">
+        {d.type}
+        {shieldStr && <span className="card-shields"> · {shieldStr}</span>}
+      </div>
       {label && <div className="card-label">{label}</div>}
     </button>
   );
@@ -38,6 +66,25 @@ export function MandateBoard(props: Props) {
   const active = ctx.currentPlayer as FactionId;
   const gameOver = ctx.gameover;
   const canStrike = G.red.zealots >= strikeCost(G);
+
+  // White's click-mode + a pending shield allocation (decree id → count) being staged
+  // before commit. Cleared after committing or switching mode.
+  const [mode, setMode] = useState<WhiteMode>("mark");
+  const [pending, setPending] = useState<Record<string, number>>({});
+  const pendingTotal = Object.values(pending).reduce((a, b) => a + b, 0);
+  const k = CONFIG.supporter_allocate_k;
+
+  const resetAlloc = () => setPending({});
+  const stageShield = (id: string) => {
+    if (pendingTotal >= k || pendingTotal >= G.white.supporters) return;
+    setPending((p) => ({ ...p, [id]: (p[id] ?? 0) + 1 }));
+  };
+  const commitShields = () => {
+    const list: string[] = [];
+    for (const [id, n] of Object.entries(pending)) for (let i = 0; i < n; i++) list.push(id);
+    if (list.length) moves.allocateSupporters(list);
+    resetAlloc();
+  };
 
   return (
     <div className="board">
@@ -104,18 +151,39 @@ export function MandateBoard(props: Props) {
             </div>
           </div>
           <div className="col">
-            <h3>Decrees in play (click to mark)</h3>
+            <h3>
+              Decrees in play{" "}
+              {active === WHITE && !gameOver && (
+                <span className="rb-muted">
+                  — click to {mode === "mark" ? "mark" : "shield"}
+                </span>
+              )}
+            </h3>
             <div className="card-list">
               {allDecreesInPlay(G).map(({ id, owner }, i) => {
                 const marked = G.marks.includes(id);
-                const canMark =
-                  active === WHITE && !gameOver && !marked && G.whiteMarkers > 0;
+                const shields = G.shields[id] ?? 0;
+                const isWhiteTurn = active === WHITE && !gameOver;
+                const canMark = isWhiteTurn && mode === "mark" && !marked && G.whiteMarkers > 0;
+                const canShield =
+                  isWhiteTurn &&
+                  mode === "shield" &&
+                  pendingTotal < k &&
+                  pendingTotal < G.white.supporters;
+                const onClick = canMark
+                  ? () => moves.mark(id)
+                  : canShield
+                    ? () => stageShield(id)
+                    : undefined;
                 return (
                   <DecreeCard
                     key={i}
                     id={id}
-                    onClick={canMark ? () => moves.mark(id) : undefined}
-                    label={marked ? "◆ marked" : owner === RED ? "(red's)" : "mark"}
+                    onClick={onClick}
+                    marked={marked}
+                    shields={shields}
+                    pending={pending[id] ?? 0}
+                    label={owner === RED ? "(red's)" : undefined}
                   />
                 );
               })}
@@ -134,9 +202,36 @@ export function MandateBoard(props: Props) {
             {canDo(WHITE, "deliberate") && (
               <button onClick={() => moves.deliberate()}>Deliberate (draw 1)</button>
             )}
-            <span className="rb-muted">
-              · enact a decree from hand, or click a decree above to mark it (signature)
-            </span>
+            {/* mark / shield mode toggle for what clicking a decree does */}
+            <button
+              className={mode === "mark" ? "active" : ""}
+              onClick={() => { setMode("mark"); resetAlloc(); }}
+            >
+              Mode: Mark
+            </button>
+            {canDo(WHITE, "allocate_supporters") && (
+              <button
+                className={mode === "shield" ? "active" : ""}
+                onClick={() => { setMode("shield"); resetAlloc(); }}
+              >
+                Mode: Shield
+              </button>
+            )}
+            {mode === "shield" && (
+              <>
+                <span className="rb-muted">
+                  staged {pendingTotal}/{Math.min(k, G.white.supporters)}
+                </span>
+                <button disabled={pendingTotal === 0} onClick={commitShields}>
+                  Allocate {pendingTotal} supporter(s)
+                </button>
+                {pendingTotal > 0 && (
+                  <button onClick={resetAlloc} className="rb-muted">
+                    clear
+                  </button>
+                )}
+              </>
+            )}
           </div>
         )}
       </section>

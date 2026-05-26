@@ -32,6 +32,10 @@ export interface GameState {
   // marked decree's output bites. A token returns to the pool when its decree leaves play.
   whiteMarkers: number;
   marks: string[];
+  // Shields: supporters White has allocated onto decrees (keyed by decree id). A Red
+  // strike strips one shield before it can remove the decree. Cleared when a decree
+  // leaves play. White's loose supporter stock lives on G.white.supporters.
+  shields: Record<string, number>;
   log: string[];
 }
 
@@ -63,11 +67,28 @@ function playerKey(id: FactionId): "white" | "red" {
 // modifiers the verb reads, and applies Mandate payouts to decree owners as a
 // side effect. detail carries verb-specific data (e.g. {deck: "research"}).
 
+// Every game number a decree might perturb flows through here. The rule (per the design's
+// data-as-code discipline): logic reads `base + mods.<delta>`, NEVER a bare constant, so any
+// number is reachable by a decree row {trigger,effect:{<delta>:n}} with no engine change.
 interface DecreeMods {
-  cost_delta: number;
-  extra_draw: number;
-  yield_delta: number;
+  cost_delta: number; // zealot cost of a strike
+  extra_draw: number; // bonus cards on a draw
+  yield_delta: number; // bonus units on rally/muster
+  alloc_delta: number; // bonus to White's supporter-allocation K
+  mandate_delta: number; // bonus Mandate Red scores per strike
+  knockback_delta: number; // bonus knockback a Mandate-strike inflicts
+  shield_strip_delta: number; // extra shields a strike strips (Red "harder strikes"; <0 = White resilience)
 }
+
+const ZERO_MODS = (): DecreeMods => ({
+  cost_delta: 0,
+  extra_draw: 0,
+  yield_delta: 0,
+  alloc_delta: 0,
+  mandate_delta: 0,
+  knockback_delta: 0,
+  shield_strip_delta: 0,
+});
 
 export function allDecreesInPlay(G: GameState): Array<{ owner: FactionId; id: string }> {
   const out: Array<{ owner: FactionId; id: string }> = [];
@@ -100,7 +121,7 @@ function fireDecrees(
   player: FactionId,
   detail: Record<string, string>,
 ): DecreeMods {
-  const mods: DecreeMods = { cost_delta: 0, extra_draw: 0, yield_delta: 0 };
+  const mods = ZERO_MODS();
 
   for (const { id } of allDecreesInPlay(G)) {
     const spec = DECREES[id];
@@ -217,6 +238,31 @@ const mark: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) => {
   G.log.push(`white marks decree '${decreeId}' (${G.whiteMarkers} markers left)`);
 };
 
+// White {W}: one action allocates up to K supporters from the loose stock onto decrees
+// as shields. `placements` is a list of decree ids, one shield each (repeats allowed) —
+// so this is "up to K independent placements in a single action". Capped at K and at the
+// available stock; invalid targets are skipped. A no-op allocation is rejected.
+const allocateSupporters: Move<GameState> = ({ G, playerID, ctx }, placements: string[]) => {
+  if (!playerID || !canAct(playerID, ctx, "allocate_supporters")) return INVALID_MOVE;
+  const w = G.white;
+  // K is the base + any decree-supplied delta (fired through the same hook pipeline as
+  // strike-cost / draw), so "a decree that lets White allocate +1" is just a data row
+  // with effect {alloc_delta: 1} on trigger {on: "allocate_supporters"} — no engine change.
+  const mods = fireDecrees(G, "allocate_supporters", playerID as FactionId, {});
+  const k = Math.max(0, CONFIG.supporter_allocate_k + mods.alloc_delta);
+  const inPlay = new Set(allDecreesInPlay(G).map((d) => d.id));
+  let placed = 0;
+  for (const id of placements ?? []) {
+    if (placed >= k || w.supporters <= 0) break;
+    if (!inPlay.has(id)) continue; // can only shield a decree on the table
+    w.supporters -= 1;
+    G.shields[id] = (G.shields[id] ?? 0) + 1;
+    placed += 1;
+  }
+  if (placed === 0) return INVALID_MOVE; // nothing happened — not a legal action
+  G.log.push(`white allocates ${placed} supporter(s) as shields`);
+};
+
 function growUnits(
   G: GameState,
   player: FactionId,
@@ -268,10 +314,13 @@ const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
   if (p.zealots < cost) return INVALID_MOVE;
   p.zealots -= cost;
   const sc = CONFIG.scoring.strike_landed;
-  G.mandate[opp] = Math.max(0, G.mandate[opp] - sc.marker_knockback);
-  G.mandate[me] += sc.mandate_per_strike;
+  // Output values are base + decree delta (so a decree can buff/tax strike power), floored at 0.
+  const knockback = Math.max(0, sc.marker_knockback + mods.knockback_delta);
+  const gain = Math.max(0, sc.mandate_per_strike + mods.mandate_delta);
+  G.mandate[opp] = Math.max(0, G.mandate[opp] - knockback);
+  G.mandate[me] += gain;
   G.log.push(
-    `${playerKey(me)} strikes ${playerKey(opp)}'s Mandate: −${sc.marker_knockback} to ${playerKey(opp)}, +${sc.mandate_per_strike} to ${playerKey(me)}`,
+    `${playerKey(me)} strikes ${playerKey(opp)}'s Mandate: −${knockback} to ${playerKey(opp)}, +${gain} to ${playerKey(me)}`,
   );
 };
 
@@ -292,6 +341,24 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
   const idx = G[playerKey(opp)].decreesInPlay.indexOf(decreeId);
   if (idx === -1) return INVALID_MOVE;
   p.zealots -= cost;
+
+  // Shields absorb the strike: if the decree carries supporters, strip `strip` of them and
+  // the decree survives. Red must grind shields to 0 before a strike can remove the decree.
+  // strip = base 1 + decree delta — so a Red decree could make strikes hit harder (+), or a
+  // White "resilience" decree could blunt them (−), e.g. "a strike removes one fewer shield".
+  const shields = G.shields[decreeId] ?? 0;
+  if (shields > 0) {
+    const strip = Math.max(0, 1 + mods.shield_strip_delta);
+    const left = Math.max(0, shields - strip);
+    if (left === 0) delete G.shields[decreeId];
+    else G.shields[decreeId] = left;
+    G.log.push(
+      `${playerKey(me)} strikes decree '${decreeId}': −${shields - left} shield (${left} left), decree holds (−${cost} zealot)`,
+    );
+    return;
+  }
+
+  // No shields left → remove the decree.
   G[playerKey(opp)].decreesInPlay.splice(idx, 1);
   // If no copy of this decree id remains in play, any White marker on it returns to the
   // pool (the platform White was defending is gone).
@@ -303,6 +370,7 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
       G.whiteMarkers += 1;
       G.log.push(`  · white's marker on '${decreeId}' returns to pool`);
     }
+    delete G.shields[decreeId]; // tidy any stray shield entry
   }
   G.log.push(
     `${playerKey(me)} strikes decree '${decreeId}' off ${playerKey(opp)}'s board (−${cost} zealot, +0 Mandate)`,
@@ -367,6 +435,7 @@ export const MandateGame: Game<GameState> = {
       red,
       whiteMarkers: CONFIG.white.markers,
       marks: [],
+      shields: {},
       log: [`--- game start, target = ${CONFIG.mandate_target} ---`],
     };
   },
@@ -387,6 +456,7 @@ export const MandateGame: Game<GameState> = {
   moves: {
     enactDecree,
     mark,
+    allocateSupporters,
     rallySupporters,
     musterZealots,
     deliberate,
