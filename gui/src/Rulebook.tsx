@@ -69,20 +69,20 @@ function DecreeSpec({ d }: { d: Decree }) {
 }
 
 function VerbSpecCard({ v }: { v: VerbSpec }) {
-  const grantedTo = (["0", "1"] as FactionId[]).filter((f) =>
-    availableVerbs(f).includes(v.name),
-  );
+  // Shared verbs: who can use them is "any character whose shard contains one of
+  // these colours" — so we just show the colours and let the reader match. Signature
+  // verbs aren't colour-gated, so we show their named owner instead.
   return (
     <div className="spec-card">
       <div className="spec-head">
         <span className="spec-id">{v.name}</span>
         <span className="rb-muted">{v.tier}</span>
       </div>
-      <Field
-        k="colours"
-        v={v.colours.length ? v.colours.join(" / ") : `— (granted to ${v.signatureOf !== undefined ? facName(v.signatureOf) : "?"} by name)`}
-      />
-      <Field k="available to" v={grantedTo.map(facName).join(", ") || "none"} />
+      {v.tier === "signature" ? (
+        <Field k="signature of" v={v.signatureOf !== undefined ? facName(v.signatureOf) : "?"} />
+      ) : (
+        <Field k="colours" v={v.colours.join(" / ")} />
+      )}
       {v.yields && <Field k="yields" v={`+${v.yields.amount} ${v.yields.unit}`} />}
       {v.spends && <Field k="spends" v={`${v.spends.amount} ${v.spends.unit} (± decree cost)`} />}
       {v.draws !== undefined && <Field k="draws" v={`${v.draws} card`} />}
