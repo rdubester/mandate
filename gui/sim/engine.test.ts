@@ -1,13 +1,18 @@
 // Regression tests for the engine + model. These pin the invariants that recent
-// refactors (two currencies, single-colour availability, decree hooks) could break.
-// They drive the REAL game via the headless Client, same as the GUI.
+// refactors (two currencies, single-colour availability, decree hooks, shared decks,
+// player-owned support) could break. They drive the REAL game via the headless Client,
+// same as the GUI. They assert BEHAVIOUR against config, never specific balance numbers
+// (those are meant to be tuned freely — pinning them here would break every tuning pass).
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { Client } from "boardgame.io/client";
-import { MandateGame, type GameState } from "../src/game";
+import { MandateGame, supportOn, type GameState } from "../src/game";
 import {
   CONFIG,
+  FACTIONS,
+  DECREES,
   VERBS,
+  WHITE_DECK_TEMPLATE,
   WHITE,
   RED,
   canDo,
@@ -88,53 +93,66 @@ describe("engine enforces availability (illegal moves are no-ops)", () => {
   });
 });
 
+// ---- state shape: decks are shared, decrees are communal --------------------
+
+describe("shared resources", () => {
+  it("the decree deck lives on G (shared), not on a player", () => {
+    const c = newClient();
+    expect(Array.isArray(G(c).decreeDeck)).toBe(true);
+    // White's opening hand was dealt from the shared deck; the rest remains shared.
+    expect(G(c).decreeDeck.length).toBe(
+      WHITE_DECK_TEMPLATE.length - FACTIONS[WHITE].starting_hand,
+    );
+    expect("deck" in (G(c).players[WHITE] as object)).toBe(false); // no per-player deck
+  });
+
+  it("an enacted decree lands on the shared table", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    expect(G(c).decreesInPlay).toContain("open_records");
+  });
+});
+
 // ---- currencies: spend / yield ---------------------------------------------
 
 describe("two-currency economy", () => {
-  it("Red starts with zealots, no supporters; muster adds zealots", () => {
+  it("Red starts per config (no supporters); muster adds zealots", () => {
     const c = newClient();
-    expect(G(c).red.zealots).toBe(CONFIG.red.starting_zealots);
-    expect(G(c).red.supporters).toBe(0);
+    expect(G(c).players[RED].zealots).toBe(FACTIONS[RED].starting_zealots);
+    expect(G(c).players[RED].supporters).toBe(0);
   });
 
   it("Mandate-strike spends a zealot and scores per config", () => {
     const c = newClient();
-    // White takes its 2 moves; then Red musters (now starts at 0 zealots) to afford a
-    // strike, ending its turn. Next Red turn it musters again then strikes.
+    // White takes its 2 moves; then Red musters to afford a strike, ending its turn. Next
+    // Red turn it strikes from the stockpile.
     seatTo(c, WHITE);
     c.moves.rallySupporters();
     c.moves.rallySupporters();
     expect(active(c)).toBe(RED);
     seatTo(c, RED);
-    c.moves.musterZealots(); // +2 zealots (action 1)
-    c.moves.musterZealots(); // +2 (action 2) → turn ends with a stockpile
+    c.moves.musterZealots(); // action 1
+    c.moves.musterZealots(); // action 2 → turn ends with a stockpile
     // back to Red after White's turn
     seatTo(c, WHITE);
     c.moves.rallySupporters();
     c.moves.rallySupporters();
     expect(active(c)).toBe(RED);
     seatTo(c, RED);
-    const z0 = G(c).red.zealots;
+    const z0 = G(c).players[RED].zealots;
     const m0 = G(c).mandate[RED];
     c.moves.strikeMandate();
-    expect(G(c).red.zealots).toBe(z0 - CONFIG.scoring.strike_landed.zealot_cost);
+    expect(G(c).players[RED].zealots).toBe(z0 - CONFIG.scoring.strike_landed.zealot_cost);
     expect(G(c).mandate[RED]).toBe(m0 + CONFIG.scoring.strike_landed.mandate_per_strike);
-  });
-
-  it("Red starts slow: 0 zealots, +2 per muster (balance pass 2026-05-26)", () => {
-    // Economy is Red's brake (must muster before acting); strike value stays punchy (4).
-    expect(CONFIG.red.starting_zealots).toBe(0);
-    expect(CONFIG.unit_yield.muster_zealots).toBe(2);
-    expect(CONFIG.scoring.strike_landed.mandate_per_strike).toBe(4);
   });
 });
 
-// ---- decrees: shared verb + White's mark-scoring ---------------------------
+// ---- decrees: shared verb + supporter-scoring ------------------------------
 
 // Advance until it's White's turn with no moves used yet — a clean slate to test a
 // 2-action White sequence. White burns time with `deliberate` (no resource side-effects,
-// unlike rally which would pollute the supporter stock) when its deck has cards, else
-// rally as a fallback. Red just musters (scores nothing, can't end the game first).
+// unlike rally which would pollute the supporter stock) when the shared deck has cards,
+// else rally as a fallback. Red just musters (scores nothing, can't end the game first).
 function freshWhiteTurn(c: ReturnType<typeof newClient>): void {
   for (let guard = 0; guard < 50; guard++) {
     const s = c.getState()!;
@@ -142,7 +160,7 @@ function freshWhiteTurn(c: ReturnType<typeof newClient>): void {
     if (s.ctx.currentPlayer === WHITE && (s.ctx.numMoves ?? 0) === 0) return;
     c.updatePlayerID(s.ctx.currentPlayer);
     if (s.ctx.currentPlayer === WHITE) {
-      if (s.G.white.deck.length > 0) c.moves.deliberate();
+      if (s.G.decreeDeck.length > 0) c.moves.deliberate();
       else c.moves.rallySupporters();
     } else {
       c.moves.musterZealots();
@@ -157,9 +175,9 @@ function driveUntilInPlay(c: ReturnType<typeof newClient>, decree: string): bool
     const seat = s.ctx.currentPlayer as FactionId;
     c.updatePlayerID(seat);
     if (seat === WHITE) {
-      if (s.G.white.decreesInPlay.includes(decree)) return true;
-      if (s.G.white.hand.includes(decree)) c.moves.enactDecree(decree);
-      else if (s.G.white.deck.length > 0) c.moves.deliberate();
+      if (s.G.decreesInPlay.includes(decree)) return true;
+      if (s.G.players[WHITE].hand.includes(decree)) c.moves.enactDecree(decree);
+      else if (s.G.decreeDeck.length > 0) c.moves.deliberate();
       else c.moves.rallySupporters();
     } else {
       c.moves.musterZealots();
@@ -168,7 +186,7 @@ function driveUntilInPlay(c: ReturnType<typeof newClient>, decree: string): bool
   return false;
 }
 
-describe("enact_decree is now SHARED (governance trio), not White's signature", () => {
+describe("enact_decree is SHARED (governance trio), not White's signature", () => {
   it("Red (R) still cannot enact decrees", () => {
     expect(canDo(RED, "enact_decree")).toBe(false);
   });
@@ -180,34 +198,34 @@ describe("enact_decree is now SHARED (governance trio), not White's signature", 
   });
 });
 
-describe("White support-scoring: only supported decrees bite (markers+shields collapsed)", () => {
-  it("UNSUPPORTED open_records does NOT score White when a player rallies", () => {
+describe("supporter-scoring: only supported decrees bite (markers+shields collapsed)", () => {
+  it("UNSUPPORTED open_records does NOT score when a player rallies", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     freshWhiteTurn(c);
     seatTo(c, WHITE);
-    expect(c.getState()!.G.support["open_records"] ?? 0).toBe(0); // confirm unsupported
-    const m0 = c.getState()!.G.mandate[WHITE];
+    expect(supportOn(G(c), "open_records")).toBe(0); // confirm unsupported
+    const m0 = G(c).mandate[WHITE];
     c.moves.rallySupporters();
-    expect(c.getState()!.G.mandate[WHITE]).toBe(m0); // unsupported = worthless
+    expect(G(c).mandate[WHITE]).toBe(m0); // unsupported = worthless
     c.stop();
   });
 
-  it("SUPPORTED open_records scores White +1 on each rally (always clause)", () => {
+  it("SUPPORTED open_records scores its supporter +score on each rally (always clause)", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     // Need a supporter in stock to place. Rally once, then support, then rally to bite.
     freshWhiteTurn(c);
     seatTo(c, WHITE);
-    c.moves.rallySupporters(); // action 1: +1 supporter to stock
+    c.moves.rallySupporters(); // action 1: +supporter(s) to stock
     c.moves.allocateSupporters(["open_records"]); // action 2: place support (scores it on)
-    expect(c.getState()!.G.support["open_records"]).toBe(1);
-    // New White turn: rally → supported open_records bites +1.
+    expect(supportOn(G(c), "open_records")).toBe(1);
+    // New White turn: rally → supported open_records bites.
     freshWhiteTurn(c);
     seatTo(c, WHITE);
-    const m0 = c.getState()!.G.mandate[WHITE];
+    const m0 = G(c).mandate[WHITE];
     c.moves.rallySupporters();
-    expect(c.getState()!.G.mandate[WHITE]).toBe(m0 + 1);
+    expect(G(c).mandate[WHITE]).toBe(m0 + (DECREES["open_records"].score?.amount ?? 0));
     c.stop();
   });
 
@@ -216,16 +234,16 @@ describe("White support-scoring: only supported decrees bite (markers+shields co
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     freshWhiteTurn(c);
     seatTo(c, WHITE);
-    const stock = c.getState()!.G.white.supporters;
-    const before = c.getState()!.G.support["open_records"] ?? 0;
+    const stock = G(c).players[WHITE].supporters;
+    const before = supportOn(G(c), "open_records");
     // Try to place K supporters; engine caps at stock (and K).
     c.moves.allocateSupporters(Array(CONFIG.supporter_allocate_k).fill("open_records"));
-    const placed = (c.getState()!.G.support["open_records"] ?? 0) - before;
+    const placed = supportOn(G(c), "open_records") - before;
     expect(placed).toBe(Math.min(stock, CONFIG.supporter_allocate_k));
     c.stop();
   });
 
-  it("striking a decree yields Red NO Mandate (pure removal, balance pass)", () => {
+  it("striking a decree yields Red NO Mandate (pure removal)", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     // It's White's turn; end it so Red can act with a zealot.
@@ -234,14 +252,14 @@ describe("White support-scoring: only supported decrees bite (markers+shields co
     c.moves.deliberate();
     expect(active(c)).toBe(RED);
     seatTo(c, RED);
-    expect(c.getState()!.G.white.decreesInPlay).toContain("open_records");
-    if (c.getState()!.G.red.zealots < 1) c.moves.musterZealots(); // ensure affordable
-    const m0 = c.getState()!.G.mandate[RED];
-    const z0 = c.getState()!.G.red.zealots;
+    expect(G(c).decreesInPlay).toContain("open_records");
+    if (G(c).players[RED].zealots < 1) c.moves.musterZealots(); // ensure affordable
+    const m0 = G(c).mandate[RED];
+    const z0 = G(c).players[RED].zealots;
     c.moves.strikeDecree("open_records");
-    expect(c.getState()!.G.white.decreesInPlay).not.toContain("open_records"); // removed
-    expect(c.getState()!.G.mandate[RED]).toBe(m0); // but +0 Mandate
-    expect(c.getState()!.G.red.zealots).toBe(
+    expect(G(c).decreesInPlay).not.toContain("open_records"); // removed (it was unsupported)
+    expect(G(c).mandate[RED]).toBe(m0); // but +0 Mandate
+    expect(G(c).players[RED].zealots).toBe(
       z0 - CONFIG.scoring.strike_landed.decree_strike_zealot_cost,
     ); // still costs a zealot
     c.stop();

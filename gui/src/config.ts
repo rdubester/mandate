@@ -14,72 +14,93 @@ export const WHITE = "0";
 export const RED = "1";
 export type FactionId = typeof WHITE | typeof RED;
 
-export const FACTION_NAME: Record<FactionId, string> = {
-  [WHITE]: "White — Assembly",
-  [RED]: "Red — Vanguard",
-};
-
 export type Colour = "W" | "U" | "B" | "R" | "G";
 
-// Each character is exactly one colour. (Wheel order: W–U–B–R–G.)
-export const COLOUR: Record<FactionId, Colour> = {
-  [WHITE]: "W",
-  [RED]: "R",
+// The shared decks (resources on the table, not owned by a player). Only "decree" is
+// modelled today; "research" lands with Blue. The ONLY per-player deck in the design is
+// Blue's Archive — also not modelled yet.
+export type DeckKind = "decree" | "research";
+
+// One row per faction — "factions as rows". A player is SEATED as a faction (see
+// PlayerState.faction in game.ts); everything a faction can DO derives from its colour
+// + the verb tags (canDo), so nothing here branches on identity.
+export interface FactionSpec {
+  colour: Colour; // the character's single colour — the whole availability key
+  name: string; // display label, e.g. "White — Assembly"
+  arc: string; // the three-colour arc / institution name, e.g. "The Assembly"
+  character: string; // flavour name, e.g. "The Prime Minister"
+  scoring: string; // scoring-rule key (display only; the engine never branches on it)
+  draw_per_turn: number;
+  starting_hand: number;
+  starting_supporters: number;
+  starting_zealots: number;
+  drawsFrom: DeckKind | null; // which SHARED deck this faction draws into hand (null = none)
+}
+
+export const FACTIONS: Record<FactionId, FactionSpec> = {
+  [WHITE]: {
+    colour: "W",
+    name: "White — Assembly",
+    arc: "The Assembly",
+    character: "The Prime Minister",
+    scoring: "decree_bite",
+    draw_per_turn: 1,
+    starting_hand: 1,
+    starting_supporters: 0,
+    starting_zealots: 0,
+    drawsFrom: "decree",
+  },
+  [RED]: {
+    colour: "R",
+    name: "Red — Vanguard",
+    arc: "The Vanguard",
+    character: "The Field Marshal",
+    scoring: "strike_landed",
+    draw_per_turn: 0,
+    starting_hand: 0,
+    starting_supporters: 0,
+    starting_zealots: 0,
+    drawsFrom: null,
+  },
 };
+
+const FACTION_IDS = Object.keys(FACTIONS) as FactionId[];
+
+// Derived lookups, so the faction registry is the one source of these facts.
+export const COLOUR = Object.fromEntries(
+  FACTION_IDS.map((f) => [f, FACTIONS[f].colour]),
+) as Record<FactionId, Colour>;
+
+export const FACTION_NAME = Object.fromEntries(
+  FACTION_IDS.map((f) => [f, FACTIONS[f].name]),
+) as Record<FactionId, string>;
 
 export const CONFIG = {
   mandate_target: 100,
   actions_per_turn: 2,
   max_turns: 200,
 
-  white: {
-    name: "The Prime Minister",
-    draw_per_turn: 1,
-    starting_hand: 1,
-    starting_supporters: 0,
-    starting_zealots: 0,
-    deck: "decree" as const,
-    scoring: "decree_bite",
-  },
-  red: {
-    name: "The Field Marshal",
-    draw_per_turn: 0,
-    starting_hand: 0,
-    starting_supporters: 0,
-    starting_zealots: 0,
-    deck: null,
-    scoring: "strike_landed",
-  },
-
   // Two currencies, one per green edge (see unit-economy-edges):
   //   supporters = G–W community (soft STOCK, White's edict fuel)
   //   zealots    = G–R authenticity (hard FLOW, spent on direct actions)
   // No soldiers. White (GWU) has no R, so it can NEVER muster zealots.
-  // Red's ECONOMY is its brake, not its strike value (sim 2026-05-26): the old start-3
-  // was wildly OP (decrees never survived a turn). Tuned to start-0/+2-per-turn so Red
-  // must muster before it can act (a natural slow open) and strikes ~every other turn
-  // early. Found via sweep: this + strike-4 gives ≈52/48 W/R, mean ~60 turns. Red
-  // acceleration is a future lever; muster yield is the dominant knob (muster=1 → W 100%).
   unit_yield: {
     rally_supporters: 1,
     muster_zealots: 2,
   },
 
   // White's signature places up to K supporters from stock onto decrees as SUPPORT. A
-  // supported decree (≥1) BOTH scores White when it bites AND is defended — a Red strike
-  // strips one supporter before it can remove the decree. (Markers + shields collapsed into
-  // this one concept.) K>1 = one White action is "K placements in a trenchcoat" — depth per
-  // turn without more actions. Count is durability; ≥1 is what turns scoring on (flat).
+  // supported decree (≥1) BOTH scores its supporter(s) when it bites AND is defended — a
+  // Red strike strips one supporter before it can remove the decree. (Markers + shields
+  // collapsed into this one concept.) K>1 = one White action is "K placements in a
+  // trenchcoat" — depth per turn without more actions. Count is durability; ≥1 turns
+  // scoring on (flat). K itself is decree-modifiable (path "allocK").
   supporter_allocate_k: 3,
 
   scoring: {
-    decree_bite: { mandate_per_bite: 1 },
     strike_landed: {
       // Red scores Mandate ONLY by striking the Mandate track. Striking a decree yields
-      // NO Mandate — it's pure removal. Theme: White doesn't win by tearing structures
-      // down; it wins by freedom to pursue its own thing. So decrees are a TAX on Red's
-      // tempo (a zealot + an action spent dealing with threats instead of racing), not a
-      // source of points for Red. decree_strike_zealot_cost is a sweepable lever (try 0+).
+      // NO Mandate — it's pure removal: a TAX on Red's tempo, not a source of points.
       mandate_per_strike: 4,
       zealot_cost: 1, // cost to strike the Mandate track
       decree_strike_zealot_cost: 1, // cost to remove a decree (yields 0 Mandate)
@@ -105,16 +126,15 @@ export interface VerbSpec {
 }
 
 export const VERBS: VerbSpec[] = [
-  // White's SIGNATURE {W}: place up to K supporters from stock onto decrees as SUPPORT.
-  // A supported decree (≥1) BOTH scores White when it bites AND is defended (support
-  // absorbs Red strikes). One action distributes K — "K placements in a trenchcoat".
-  // (Markers and shields were collapsed into this one concept.)
+  // White's SIGNATURE {W}: place up to K supporters from the loose stock onto decrees as
+  // SUPPORT. A supported decree (≥1) scores its supporter(s) when it bites AND is defended
+  // (support absorbs Red strikes). One action distributes K — "K placements in a trenchcoat".
   { name: "allocate_supporters", colours: ["W"], allocates: true },
   // Enact a decree (install a standing table rule). SHARED across the governance trio
   // {W,U,G}: White backs platforms, Blue plays tempo bets, Green stabilises the board.
-  // Red (R) cannot enact — only strike decrees away.
+  // Red (R) cannot enact — only strike decrees away. Decrees land on the SHARED table.
   { name: "enact_decree", colours: ["W", "U", "G"] },
-  // White draws from its own (decree) deck. {W} only for now — when Blue arrives this
+  // White draws from the shared decree deck. {W} only for now — when Blue arrives this
   // likely becomes a shared W–U "research" verb (digs both decks); reskin then.
   { name: "deliberate", colours: ["W"], draws: 1 },
   // W–G community edge: shared by White and (later) Green. Grows the soft stock.
@@ -152,8 +172,8 @@ export function verbsFor(f: FactionId): string[] {
 // ---- decrees: shared RULES on the table that hook the verb pipeline -----------
 // A decree may match a verb (+detail), apply an ambient EFFECT (cost/yield delta),
 // and OFFER a rider (the 'may' — acting player chooses). Decrees pay NO ONE for
-// ownership. The `score` field is what WHITE earns IF this decree is SUPPORTED (≥1 of
-// White's supporters on it) and its output "bites":
+// ownership. The `score` field is what every PLAYER SUPPORTING this decree earns when
+// its output "bites":
 //   · when "compliance" → bites only when a player TAKES the rider (the output fired).
 //   · when "always"     → bites whenever the trigger fires (ambient output always fires).
 // A decree with no `score` (a pure tax) can be enacted but is worthless to support.
@@ -163,17 +183,20 @@ export type DecreeType = "positive" | "negative";
 
 // The op DSL (interpreted by game.ts's decree chain). A decree's effect/rider is a LIST of
 // ops, each reaching into a field of the verb "event" as it passes through. `path` names a
-// VerbEvent field: numeric (cost, yieldN, draws, allocK, mandate, knockback, shieldStrip)
-// for add/mul, or any field for set (incl. cancelled). This vocabulary is deliberately
-// small — its ceiling IS the complexity budget. A new op kind is a rare, deliberate engine
-// edit ("the rulebook has a new kind of modifier"); a new EFFECT is just a new data row.
-export type EventField =
-  | "cost" | "yieldN" | "draws" | "allocK" | "mandate" | "knockback" | "shieldStrip" | "cancelled";
+// VerbEvent field: numeric (cost, yieldN, draws, allocK, mandate, knockback, supportStrip)
+// for add/mul, or the boolean `cancelled` for set. This vocabulary is deliberately small —
+// its ceiling IS the complexity budget. A new op kind is a rare, deliberate engine edit
+// ("the rulebook has a new kind of modifier"); a new EFFECT is just a new data row.
+export type NumField =
+  | "cost" | "yieldN" | "draws" | "allocK" | "mandate" | "knockback" | "supportStrip";
+export type BoolField = "cancelled";
+export type EventField = NumField | BoolField;
 
 export type Op =
-  | { op: "add"; path: EventField; n: number }
-  | { op: "mul"; path: EventField; n: number }
-  | { op: "set"; path: EventField; v: number | boolean };
+  | { op: "add"; path: NumField; n: number }
+  | { op: "mul"; path: NumField; n: number }
+  | { op: "set"; path: NumField; v: number }
+  | { op: "set"; path: BoolField; v: boolean };
 
 export interface Decree {
   id: string;
@@ -183,7 +206,7 @@ export interface Decree {
   trigger: { on: string; detail?: Record<string, string> };
   effect?: Op[]; // applied to every matching verb event (ambient, no choice)
   rider?: { effect: Op[]; describe: string }; // the "may" — applied only if the actor complies
-  score?: { when: "compliance" | "always"; amount: number }; // White's, only if the decree is supported
+  score?: { when: "compliance" | "always"; amount: number }; // each supporter's, on bite
 }
 
 export const DECREES: Record<string, Decree> = {
@@ -191,25 +214,28 @@ export const DECREES: Record<string, Decree> = {
     id: "civic_endowment",
     name: "Civic Endowment",
     type: "positive",
-    text: "When any player draws a card, they may draw +1. If supported & they do, White scores 1.",
+    text: "When any player draws a card, they may draw +1. If supported & they do, supporters score 1.",
     trigger: { on: "draw" },
     rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 card" },
     score: { when: "compliance", amount: 1 },
   },
-  academic_census: {
-    id: "academic_census",
-    name: "Academic Census",
-    type: "positive",
-    text: "When a RESEARCH card is drawn, that player may draw +1. If supported & they do, White scores 2.",
-    trigger: { on: "draw", detail: { deck: "research" } },
-    rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 research card" },
-    score: { when: "compliance", amount: 2 },
-  },
+  // academic_census is COMMENTED OUT: it triggers on drawing a RESEARCH card, but no
+  // research deck exists until Blue, so it can never bite — and the bot would still waste
+  // tempo enacting/supporting it. Re-enable when the research deck (Blue) lands.
+  // academic_census: {
+  //   id: "academic_census",
+  //   name: "Academic Census",
+  //   type: "positive",
+  //   text: "When a RESEARCH card is drawn, that player may draw +1. If supported & they do, supporters score 2.",
+  //   trigger: { on: "draw", detail: { deck: "research" } },
+  //   rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 research card" },
+  //   score: { when: "compliance", amount: 2 },
+  // },
   open_records: {
     id: "open_records",
     name: "Open Records",
     type: "positive",
-    text: "When any player rallies supporters, they get +1 supporter. If supported, White scores 1 each time.",
+    text: "When any player rallies supporters, they get +1 supporter. If supported, supporters score 1 each time.",
     trigger: { on: "rally_supporters" },
     effect: [{ op: "add", path: "yieldN", n: 1 }],
     score: { when: "always", amount: 1 },
@@ -234,7 +260,7 @@ export const DECREES: Record<string, Decree> = {
     id: "public_works",
     name: "Public Works",
     type: "positive",
-    text: "When any player rallies supporters, if supported White scores 1 (no effect on the rally itself).",
+    text: "When any player rallies supporters, if supported supporters score 1 (no effect on the rally itself).",
     trigger: { on: "rally_supporters" },
     score: { when: "always", amount: 1 },
   },
@@ -242,7 +268,6 @@ export const DECREES: Record<string, Decree> = {
 
 export const WHITE_DECK_TEMPLATE: string[] = [
   "civic_endowment", "civic_endowment",
-  "academic_census",
   "open_records", "open_records",
   "public_works",
   "martial_restraint",
@@ -250,34 +275,25 @@ export const WHITE_DECK_TEMPLATE: string[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// Per-character facts for the Rulebook. A character is one colour; everything else
-// (which verbs it can do, its emergent shard) is DERIVED via verbsFor() / VERBS, so
-// there is nothing here to drift from the engine.
+// Per-character facts for the Rulebook — derived from the FACTIONS registry, so there
+// is nothing here to drift from the engine. Which verbs a character can do and its
+// emergent shard are DERIVED via verbsFor() / VERBS.
 
 export interface CharacterSpec {
   id: FactionId;
-  name: string;        // The Assembly / The Vanguard — a display label, not a rule
-  character: string;   // CONFIG.{white,red}.name
+  name: string; // the arc / institution name (The Assembly / The Vanguard)
+  character: string; // FACTIONS[id].character
   colour: Colour;
-  scoring: string;     // CONFIG.{white,red}.scoring key
+  scoring: string; // FACTIONS[id].scoring key
 }
 
-export const CHARACTERS: CharacterSpec[] = [
-  {
-    id: WHITE,
-    name: "The Assembly",
-    character: CONFIG.white.name,
-    colour: COLOUR[WHITE],
-    scoring: CONFIG.white.scoring,
-  },
-  {
-    id: RED,
-    name: "The Vanguard",
-    character: CONFIG.red.name,
-    colour: COLOUR[RED],
-    scoring: CONFIG.red.scoring,
-  },
-];
+export const CHARACTERS: CharacterSpec[] = FACTION_IDS.map((id) => ({
+  id,
+  name: FACTIONS[id].arc,
+  character: FACTIONS[id].character,
+  colour: FACTIONS[id].colour,
+  scoring: FACTIONS[id].scoring,
+}));
 
 // A character's emergent "shard" = the colours appearing across the verbs it can
 // reach. Not declared — computed. Comes out as centre + adjacent wings.

@@ -6,13 +6,13 @@
 import type { ReactNode } from "react";
 import {
   CONFIG,
+  FACTIONS,
   DECREES,
   VERBS,
   CHARACTERS,
   WHITE_DECK_TEMPLATE,
   verbsFor,
   shardOf,
-  WHITE,
   type Decree,
   type VerbSpec,
   type Op,
@@ -121,10 +121,10 @@ export function Rulebook() {
           (a de-facto signature); a two-adjacent-tag verb is shared by both wheel
           neighbours. The "shard" is not declared — it <em>emerges</em> as the colours
           across the verbs a character can reach (centre + wings). Decrees are standing
-          rules that hook every verb; they pay no one for ownership — instead{" "}
-          <strong>White</strong> scores when a decree it has <em>supported</em> (its
-          signature verb, which also defends it) bites. Everything below is rendered from
-          the engine data.
+          rules on a <em>shared table</em> that hook every verb; they pay no one for
+          ownership — instead whoever has <em>supported</em> a decree scores when it bites
+          (support is <strong>White</strong>'s signature verb, which also defends the
+          decree). Everything below is rendered from the engine data.
         </p>
       </section>
 
@@ -132,9 +132,9 @@ export function Rulebook() {
         <h2>Characters</h2>
         <div className="spec-grid">
           {CHARACTERS.map((c) => {
-            const cfg = c.id === WHITE ? CONFIG.white : CONFIG.red;
+            const cfg = FACTIONS[c.id];
             return (
-              <div key={c.id} className={`spec-card ${c.id === WHITE ? "white-edge" : "red-edge"}`}>
+              <div key={c.id} className={`spec-card ${cfg.colour === "W" ? "white-edge" : "red-edge"}`}>
                 <div className="spec-head">
                   <span className="spec-id">{c.name}</span>
                   <span className="rb-muted">{c.character}</span>
@@ -144,7 +144,7 @@ export function Rulebook() {
                 <Field k="scoring" v={c.scoring} />
                 <Field k="verbs" v={verbsFor(c.id).join(", ")} />
                 <Field k="start" v={`hand ${cfg.starting_hand} · supporters ${cfg.starting_supporters} · zealots ${cfg.starting_zealots}`} />
-                <Field k="draw/turn" v={`${cfg.draw_per_turn}${cfg.deck ? ` (${cfg.deck} deck)` : " (no deck)"}`} />
+                <Field k="draw/turn" v={`${cfg.draw_per_turn}${cfg.drawsFrom ? ` (shared ${cfg.drawsFrom} deck)` : " (no deck)"}`} />
               </div>
             );
           })}
@@ -171,13 +171,14 @@ export function Rulebook() {
           ))}
         </div>
         <p className="rb-muted rb-note">
-          Deck: {WHITE_DECK_TEMPLATE.length} cards. Anyone in {"{W,U,G}"} can enact a decree;
-          only White can <em>support</em> one (place supporters on it). <code>effect</code>{" "}
-          applies to every actor (ambient); <code>rider</code> is the "may" the actor chooses
-          (greedy by default). A supported decree <em>bites</em> — paying White its{" "}
+          Shared decree deck: {WHITE_DECK_TEMPLATE.length} cards. Anyone in {"{W,U,G}"} can
+          enact a decree onto the shared table; only White can <em>support</em> one (place
+          supporters on it). <code>effect</code> applies to every actor (ambient);{" "}
+          <code>rider</code> is the "may" the actor chooses (greedy by default). A supported
+          decree <em>bites</em> — paying <em>each of its supporters</em> the{" "}
           <code>score</code> — when its output fires: a rider complied with, or an
-          always-clause triggering. Support also defends: a Red strike strips one supporter
-          before it can remove the decree. Unsupported decrees (and pure taxes) pay nothing.
+          always-clause triggering. Support also defends: a strike strips a supporter before
+          it can remove the decree. Unsupported decrees (and pure taxes) pay nothing.
         </p>
       </section>
 

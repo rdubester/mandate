@@ -115,7 +115,10 @@ pool, but White's support gives a subset a second valence only White sees and sc
 **decouples who plays decrees (anyone in W,U,G) from who scores off them (White, by supporting)**
 — making decrees a true shared substrate, as the brief always wanted.
 
-**Decrees pay no one for ownership.** The only Mandate a decree generates is White's, via support.
+**Decrees pay no one for ownership.** The only Mandate a decree generates goes to whoever has
+*supported* it — and support is keyed per player (`G.support[decreeId][seat]`), so a decree bites
+for *every* seat with support on it. Only White can support today, so in practice that's White;
+the per-player keying is what lets two White seats juggle support on the shared decrees later.
 (Markers and shields were two parallel abstractions; collapsing them into one "support" concept
 is a complexity cut — one verb, one state field, one token type. A future `support` variant could
 allow free reallocation between decrees; current build places from stock, strips on strike.)
@@ -300,6 +303,7 @@ Rules of thumb:
   spent to pass/sustain edicts; White still scores only via decrees (compliance). Avoid an
   independent supporter payoff that blurs into Green's procession.
 - `deliberate` → shared W–U `research` reskin when Blue lands.
-- **Current balance:** baseline bots give Red ~100% (White's compliance-scoring needs an
-  opponent who draws/complies; the Red bot only musters+strikes). A bot-policy and/or
-  parameter problem to chase with the sim, not an engine bug.
+
+*(Balance figures — win-rates, the parameter bands tried, which knob moved what — are deliberately
+kept out of this doc and out of `config.ts` comments: they change every tuning pass and rot fast.
+Keep them in a separate balance-notes doc, read off `npm run sim`.)*
