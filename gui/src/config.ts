@@ -161,25 +161,28 @@ export function verbsFor(f: FactionId): string[] {
 
 export type DecreeType = "positive" | "negative";
 
+// The op DSL (interpreted by game.ts's decree chain). A decree's effect/rider is a LIST of
+// ops, each reaching into a field of the verb "event" as it passes through. `path` names a
+// VerbEvent field: numeric (cost, yieldN, draws, allocK, mandate, knockback, shieldStrip)
+// for add/mul, or any field for set (incl. cancelled). This vocabulary is deliberately
+// small — its ceiling IS the complexity budget. A new op kind is a rare, deliberate engine
+// edit ("the rulebook has a new kind of modifier"); a new EFFECT is just a new data row.
+export type EventField =
+  | "cost" | "yieldN" | "draws" | "allocK" | "mandate" | "knockback" | "shieldStrip" | "cancelled";
+
+export type Op =
+  | { op: "add"; path: EventField; n: number }
+  | { op: "mul"; path: EventField; n: number }
+  | { op: "set"; path: EventField; v: number | boolean };
+
 export interface Decree {
   id: string;
   name: string;
   type: DecreeType;
   text: string;
   trigger: { on: string; detail?: Record<string, string> };
-  // Any of these deltas may be set; they flow through fireDecrees into the matching
-  // game number (see DecreeMods in game.ts). Add a field here + in DecreeMods to expose
-  // a new perturbable number — no other engine change.
-  effect?: {
-    cost_delta?: number;
-    yield_delta?: number;
-    extra_draw?: number;
-    alloc_delta?: number;
-    mandate_delta?: number;
-    knockback_delta?: number;
-    shield_strip_delta?: number;
-  };
-  rider?: { effect: Record<string, number>; describe: string };
+  effect?: Op[]; // applied to every matching verb event (ambient, no choice)
+  rider?: { effect: Op[]; describe: string }; // the "may" — applied only if the actor complies
   score?: { when: "compliance" | "always"; amount: number }; // White's, only if the decree is supported
 }
 
@@ -190,7 +193,7 @@ export const DECREES: Record<string, Decree> = {
     type: "positive",
     text: "When any player draws a card, they may draw +1. If supported & they do, White scores 1.",
     trigger: { on: "draw" },
-    rider: { effect: { extra_draw: 1 }, describe: "draw +1 card" },
+    rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 card" },
     score: { when: "compliance", amount: 1 },
   },
   academic_census: {
@@ -199,7 +202,7 @@ export const DECREES: Record<string, Decree> = {
     type: "positive",
     text: "When a RESEARCH card is drawn, that player may draw +1. If supported & they do, White scores 2.",
     trigger: { on: "draw", detail: { deck: "research" } },
-    rider: { effect: { extra_draw: 1 }, describe: "draw +1 research card" },
+    rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 research card" },
     score: { when: "compliance", amount: 2 },
   },
   open_records: {
@@ -208,7 +211,7 @@ export const DECREES: Record<string, Decree> = {
     type: "positive",
     text: "When any player rallies supporters, they get +1 supporter. If supported, White scores 1 each time.",
     trigger: { on: "rally_supporters" },
-    effect: { yield_delta: 1 },
+    effect: [{ op: "add", path: "yieldN", n: 1 }],
     score: { when: "always", amount: 1 },
   },
   martial_restraint: {
@@ -217,7 +220,7 @@ export const DECREES: Record<string, Decree> = {
     type: "negative",
     text: "Ambient: strikes cost +1 zealot. (A tax on the militant G–R edge — no score to support.)",
     trigger: { on: "strike" },
-    effect: { cost_delta: 1 },
+    effect: [{ op: "add", path: "cost", n: 1 }],
   },
   writ_of_order: {
     id: "writ_of_order",
@@ -225,7 +228,7 @@ export const DECREES: Record<string, Decree> = {
     type: "negative",
     text: "Ambient: mustering zealots yields −1. (A tax on militarization — no score to support.)",
     trigger: { on: "muster_zealots" },
-    effect: { yield_delta: -1 },
+    effect: [{ op: "add", path: "yieldN", n: -1 }],
   },
   public_works: {
     id: "public_works",

@@ -15,12 +15,24 @@ import {
   WHITE,
   type Decree,
   type VerbSpec,
+  type Op,
 } from "./config";
 
 function deckCounts(): Record<string, number> {
   const out: Record<string, number> = {};
   for (const id of WHITE_DECK_TEMPLATE) out[id] = (out[id] ?? 0) + 1;
   return out;
+}
+
+// Render an op list as terse readable text, e.g. "cost +1", "draws +1", "cancelled = true".
+function opsStr(ops: Op[]): string {
+  return ops
+    .map((o) =>
+      o.op === "set"
+        ? `${o.path} = ${o.v}`
+        : `${o.path} ${o.op === "mul" ? "×" : o.n >= 0 ? "+" : ""}${o.n}`,
+    )
+    .join(", ");
 }
 
 // A field row: "key: value" in mono, for the spec look.
@@ -45,16 +57,8 @@ function DecreeSpec({ d }: { d: Decree }) {
         k="on"
         v={t.detail ? `${t.on} where ${Object.entries(t.detail).map(([k, v]) => `${k}=${v}`).join(", ")}` : t.on}
       />
-      {d.effect &&
-        Object.entries(d.effect).map(([k, v]) => (
-          <Field key={k} k="effect" v={`${k} ${(v as number) >= 0 ? "+" : ""}${v}`} />
-        ))}
-      {d.rider && (
-        <Field
-          k="rider"
-          v={`may {${Object.entries(d.rider.effect).map(([k, v]) => `${k} ${v >= 0 ? "+" : ""}${v}`).join(", ")}}`}
-        />
-      )}
+      {d.effect && d.effect.length > 0 && <Field k="effect" v={opsStr(d.effect)} />}
+      {d.rider && <Field k="rider" v={`may [${opsStr(d.rider.effect)}]`} />}
       {d.score ? (
         <Field
           k="if supported"
