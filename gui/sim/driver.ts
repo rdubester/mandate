@@ -7,7 +7,7 @@
 import { Client } from "boardgame.io/client";
 import { MandateGame, strikeCost } from "../src/game";
 import type { GameState } from "../src/game";
-import { WHITE, RED, canDo, type FactionId } from "../src/config";
+import { WHITE, RED, DECREES, canDo, type FactionId } from "../src/config";
 
 export interface MoveChoice {
   move: string; // a key of client.moves
@@ -75,9 +75,19 @@ export function runGame(
 // it anyway, but this keeps policies honest and self-documenting).
 
 const whitePolicy: Policy = (G, seat) => {
-  // Enact decrees (White's scoring engine); else deliberate to dig for more.
+  // White scores via MARKED decrees biting. So: mark an unmarked decree in play if it
+  // has a score and we have a free marker; else enact a scoring decree from hand; else
+  // dig with deliberate; else rally.
+  if (canDo(seat, "mark") && G.whiteMarkers > 0) {
+    const markable = [...G.white.decreesInPlay, ...G.red.decreesInPlay].find(
+      (id) => !G.marks.includes(id) && DECREES[id]?.score,
+    );
+    if (markable) return { move: "mark", args: [markable] };
+  }
   if (canDo(seat, "enact_decree") && G.white.hand.length > 0) {
-    return { move: "enactDecree", args: [G.white.hand[0]] };
+    // Prefer enacting a decree that can actually score when marked.
+    const scoring = G.white.hand.find((id) => DECREES[id]?.score) ?? G.white.hand[0];
+    return { move: "enactDecree", args: [scoring] };
   }
   if (canDo(seat, "deliberate") && G.white.deck.length > 0) {
     return { move: "deliberate" };

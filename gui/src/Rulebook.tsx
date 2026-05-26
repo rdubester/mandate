@@ -55,11 +55,13 @@ function DecreeSpec({ d }: { d: Decree }) {
           v={`may {${Object.entries(d.rider.effect).map(([k, v]) => `${k} ${v >= 0 ? "+" : ""}${v}`).join(", ")}}`}
         />
       )}
-      {d.score && (
+      {d.score ? (
         <Field
-          k="score"
-          v={`${d.score.when} → owner +${d.score.amount}`}
+          k="if marked"
+          v={`bites on ${d.score.when} → White +${d.score.amount}`}
         />
+      ) : (
+        <Field k="if marked" v={<span className="rb-muted">no score (pure tax)</span>} />
       )}
     </div>
   );
@@ -81,6 +83,9 @@ function VerbSpecCard({ v }: { v: VerbSpec }) {
       {v.yields && <Field k="yields" v={`+${v.yields.amount} ${v.yields.unit}`} />}
       {v.spends && <Field k="spends" v={`${v.spends.amount} ${v.spends.unit} (± decree cost)`} />}
       {v.draws !== undefined && <Field k="draws" v={`${v.draws} card`} />}
+      {v.marks && (
+        <Field k="effect" v={`place a marker on a decree (pool of ${CONFIG.white.markers})`} />
+      )}
       {v.scores && (
         <Field
           k="scores"
@@ -109,8 +114,9 @@ export function Rulebook() {
           (a de-facto signature); a two-adjacent-tag verb is shared by both wheel
           neighbours. The "shard" is not declared — it <em>emerges</em> as the colours
           across the verbs a character can reach (centre + wings). Decrees are standing
-          rules that hook every verb; their owner scores per the <code>score</code>{" "}
-          field. Everything below is rendered from the engine data.
+          rules that hook every verb; they pay no one for ownership — instead{" "}
+          <strong>White</strong> scores when a decree it has <em>marked</em> (its
+          signature verb) bites. Everything below is rendered from the engine data.
         </p>
       </section>
 
@@ -157,9 +163,12 @@ export function Rulebook() {
           ))}
         </div>
         <p className="rb-muted rb-note">
-          Deck: {WHITE_DECK_TEMPLATE.length} cards. <code>effect</code> applies to every
-          actor (ambient); <code>rider</code> is the "may" the actor chooses (greedy by
-          default); <code>score</code> pays the decree's owner.
+          Deck: {WHITE_DECK_TEMPLATE.length} cards. Anyone in {"{W,U,G}"} can enact a decree;
+          only White can <em>mark</em> one. <code>effect</code> applies to every actor
+          (ambient); <code>rider</code> is the "may" the actor chooses (greedy by default).
+          A marked decree <em>bites</em> — paying White its <code>score</code> — when its
+          output fires: a rider complied with, or an always-clause triggering. Unmarked
+          decrees (and pure taxes) pay nothing.
         </p>
       </section>
 

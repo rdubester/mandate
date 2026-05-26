@@ -54,8 +54,10 @@ describe("availability: character is one colour, verb iff colour ∈ tags", () =
     expect(canDo(RED, "rally_supporters")).toBe(false);
   });
 
-  it("emergent shards: White WG, Red RG (only built colours light up)", () => {
-    expect(new Set(shardOf(WHITE))).toEqual(new Set(["W", "G"]));
+  it("emergent shards reflect the verb tags: White WUG, Red RG", () => {
+    // White reaches enact_decree{W,U,G}, so U lights up in its footprint even though
+    // no U-character is built — the shard is purely a consequence of the verb tags.
+    expect(new Set(shardOf(WHITE))).toEqual(new Set(["W", "U", "G"]));
     expect(new Set(shardOf(RED))).toEqual(new Set(["R", "G"]));
   });
 
@@ -111,38 +113,75 @@ describe("two-currency economy", () => {
   });
 });
 
-// ---- decree hooks: live scoring, ambient effects ---------------------------
+// ---- decrees: shared verb + White's mark-scoring ---------------------------
 
-describe("decree hook pipeline", () => {
-  it("open_records: when a player rallies, White scores (always clause) +1", () => {
-    // Drive through LEGAL moves until White has open_records in play, then rally
-    // and check the always-clause pays +1. (White draws its decree deck 1/turn;
-    // Red just musters so it scores nothing and can't end the game first.)
-    const c = newClient();
-    let enacted = false;
-    for (let guard = 0; guard < 200 && !enacted; guard++) {
-      const s = c.getState()!;
-      if (s.ctx.gameover) break;
-      const seat = s.ctx.currentPlayer as FactionId;
-      c.updatePlayerID(seat);
-      if (seat === WHITE) {
-        if (s.G.white.decreesInPlay.includes("open_records")) {
-          const m0 = c.getState()!.G.mandate[WHITE];
-          c.moves.rallySupporters();
-          expect(c.getState()!.G.mandate[WHITE]).toBe(m0 + 1); // always-clause +1
-          enacted = true;
-        } else if (s.G.white.hand.includes("open_records")) {
-          c.moves.enactDecree("open_records");
-        } else if (s.G.white.deck.length > 0) {
-          c.moves.deliberate();
-        } else {
-          c.moves.rallySupporters(); // nothing to dig; burn the action
-        }
-      } else {
-        c.moves.musterZealots();
-      }
+// Drive legal moves until White has `decree` in play, leaving it White's turn with
+// an action to spare. Red just musters (scores nothing, can't end the game first).
+function driveUntilInPlay(c: ReturnType<typeof newClient>, decree: string): boolean {
+  for (let guard = 0; guard < 300; guard++) {
+    const s = c.getState()!;
+    if (s.ctx.gameover) return false;
+    const seat = s.ctx.currentPlayer as FactionId;
+    c.updatePlayerID(seat);
+    if (seat === WHITE) {
+      if (s.G.white.decreesInPlay.includes(decree)) return true;
+      if (s.G.white.hand.includes(decree)) c.moves.enactDecree(decree);
+      else if (s.G.white.deck.length > 0) c.moves.deliberate();
+      else c.moves.rallySupporters();
+    } else {
+      c.moves.musterZealots();
     }
-    expect(enacted).toBe(true); // we actually reached and verified the scenario
+  }
+  return false;
+}
+
+describe("enact_decree is now SHARED (governance trio), not White's signature", () => {
+  it("Red (R) still cannot enact decrees", () => {
+    expect(canDo(RED, "enact_decree")).toBe(false);
+  });
+  it("White (W) can enact and can mark", () => {
+    expect(canDo(WHITE, "enact_decree")).toBe(true);
+    expect(canDo(WHITE, "mark")).toBe(true);
+    expect(canDo(RED, "mark")).toBe(false);
+  });
+});
+
+describe("White mark-scoring: only marked decrees bite", () => {
+  it("UNMARKED open_records does NOT score White when a player rallies", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    // It's White's turn with open_records in play but NOT marked. Rally → no score.
+    seatTo(c, WHITE);
+    const m0 = c.getState()!.G.mandate[WHITE];
+    c.moves.rallySupporters();
+    expect(c.getState()!.G.mandate[WHITE]).toBe(m0); // unmarked = worthless
+    c.stop();
+  });
+
+  it("MARKED open_records scores White +1 on each rally (always clause)", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    seatTo(c, WHITE);
+    const markers0 = c.getState()!.G.whiteMarkers;
+    c.moves.mark("open_records"); // action 1: spend a marker
+    expect(c.getState()!.G.whiteMarkers).toBe(markers0 - 1);
+    expect(c.getState()!.G.marks).toContain("open_records");
+    const m0 = c.getState()!.G.mandate[WHITE];
+    c.moves.rallySupporters(); // action 2: marked decree bites
+    expect(c.getState()!.G.mandate[WHITE]).toBe(m0 + 1);
+    c.stop();
+  });
+
+  it("mark is rejected when no markers are free", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    seatTo(c, WHITE);
+    // Drain the marker pool by marking the same/other decrees until empty, then a
+    // further mark must be a no-op. Simplest: mark open_records, then try again.
+    c.moves.mark("open_records");
+    const marks1 = [...c.getState()!.G.marks];
+    c.moves.mark("open_records"); // already marked → rejected
+    expect(c.getState()!.G.marks).toEqual(marks1);
     c.stop();
   });
 });

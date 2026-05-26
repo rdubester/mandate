@@ -64,7 +64,8 @@ emphasis is strategic. (See `running-the-wheel.md`.)
 
 | verb | colours | reaches | role |
 |---|---|---|---|
-| `enact_decree` | W | White | White's signature — install a standing rule |
+| `mark` | W | White | White's signature — place a platform marker on a decree (see below) |
+| `enact_decree` | W, U, G | White (Blue, Green later) | shared — install a standing table rule |
 | `deliberate` | W | White | draw 1 from own deck (decree deck for now) |
 | `rally_supporters` | W, G | White, Green | G–W community edge → +supporters |
 | `strike` | R | Red | Red's signature + scoring; spend a zealot, score on landing |
@@ -72,11 +73,45 @@ emphasis is strategic. (See `running-the-wheel.md`.)
 
 `deliberate` is a placeholder name: it's "draw from your own deck," White-only for now. When
 **Blue** arrives it likely becomes a shared **W–U** verb ("research" — digs the research pool),
-and gets reskinned. Until then it carries no U because no U-character exists.
+and gets reskinned.
 
-Note the emergent shards today are **WG** (White) and **RG** (Red), *not* the brief's full GWU /
-BRG — because a colour only "lights up" when a verb tagged with it exists. U and B are dark until
-Blue/Black verbs are built; the shards will fill in automatically as they are.
+Emergent shards today: White **WUG** (it reaches `enact_decree` {W,U,G}, so U lights up even
+though no Blue character exists yet), Red **RG**. B is still dark (no B-tagged verb built). The
+shards fill in automatically as verbs are added — they are nothing but the footprint of the
+verb tags.
+
+## Enact is shared; White's real signature is `mark`
+
+A key correction over earlier drafts: **`enact_decree` is NOT White's signature.** Governance
+has multiple colour-theories, so enacting decrees is **shared across {W,U,G}** — and the three
+enactors have genuinely different *reasons* to play a decree (the thing that makes a shared verb
+interesting rather than generic):
+
+- **White** plays decrees to have a *platform to back* — it scores off them (via `mark`).
+- **Blue** plays decrees as a **tempo bet** — "I benefit if everyone is drawing faster *right
+  now*" — a technocratic, governance-as-optimization read.
+- **Green** plays decrees to **stabilise the board** — religious dogma that slows the game so
+  Green has more time to assemble its win condition.
+
+**White's signature is `mark`:** it places a fixed pool of white tokens (`white.markers`,
+currently 3) onto decrees on the table — *detecting where the political winds blow and adopting a
+platform to defend.* **White scores only when a *marked* decree "bites."** A decree bites when
+its *output fires*: a rider is **complied with** (someone took the "may"), or an always-clause
+effect takes hold. If the player declines the rider, nothing fired, so no bite. A token returns
+to the pool when its decree leaves play (so destroying a marked decree denies White the score and
+frees White's token — which creates real incentives, e.g. White protecting its marked decrees, or
+even wanting to re-stake as the board shifts).
+
+This is a textbook **positional mechanic** (the north star below): the decrees are one shared
+pool, but White's marking gives a subset a second valence only White sees and scores from. It
+also cleanly **decouples who plays decrees (anyone in W,U,G) from who scores off them (White, by
+marking)** — making decrees a true shared substrate, as the brief always wanted.
+
+**Decrees pay no one for ownership.** The only Mandate a decree generates is White's, via marks.
+(Two framings of the `mark` verb are both interesting and the engine should support both: (a)
+*commitment* — a token sticks to its decree until the decree is destroyed; (b) *reallocation* —
+the verb moves tokens freely from pool or among decrees. Current build is the simpler (a)-ish
+version: place from pool, returns on destruction. Revisit when it matters.)
 
 ## The unit economy: two currencies from the two green edges
 
@@ -117,26 +152,28 @@ free: zealots are dearer than supporters (conviction > broad assent), so a White
 Red's *actions* (+1 zealot per strike) bites a costlier resource than one taxing supporter
 growth. (This is `martial_restraint` in the deck.)
 
-## Decrees: standing rules that hook every verb
+## Decrees: the hook pipeline (mechanics)
 
-White's signature isn't "score points"; it's **install ambient rules on the shared table**.
-A decree hooks the verb pipeline: when ANY player takes a verb, each installed decree may
+A decree is a standing rule that hooks the verb pipeline: when ANY player takes a verb, each
+installed decree may
 
 - **match** the verb (+ an optional detail predicate, e.g. "when a *research* card is drawn" —
   hits Blue often, Green never, which is wheel-targeting via wording);
 - apply an **ambient effect** to that verb (a tax/boon: `strike costs +1 zealot`,
   `rally yields +1`), with no choice;
-- offer the acting player a **rider** — the "may" (e.g. "you *may* draw +1") — a genuine choice;
-- **score its owner** Mandate, either on *compliance* (the player took the rider) or *always*.
+- offer the acting player a **rider** — the "may" (e.g. "you *may* draw +1") — a genuine choice.
 
-White's theory of victory is **legitimacy**: it doesn't act for points, it skims Mandate when
-others choose to live under its rules. (Engine-verified: under `open_records`, when a player
-rallies, White scores +1.) The rider/compliance choice is modelled but currently auto-accepted
+The decree's **`score`** field is what **White** earns *if it has marked that decree* and the
+output bites (see "Enact is shared; White's real signature is `mark`" above): on *compliance*
+(rider taken) or *always*. White's theory of victory is **legitimacy**: it doesn't act for
+points, it skims Mandate when others act under the rules it chose to back. (Engine-verified:
+unmarked `open_records` scores nothing on a rally; marked, it pays White +1 each rally — see
+`gui/sim/engine.test.ts`.) The rider/compliance choice is modelled but currently auto-accepted
 (greedy); smarter policies are a hook (`wantsRider` in `game.ts`).
 
-The decree *pipeline shape* is meant to be stable; the *vocabulary* of triggers/effects is the
-small, deliberately-extensible part. Growing the decree set = adding rows + occasionally a new
-trigger word, never reshaping the pipeline.
+The decree *pipeline shape* is stable; the *vocabulary* of triggers/effects is the small,
+deliberately-extensible part. Growing the decree set = adding rows + occasionally a new trigger
+word, never reshaping the pipeline.
 
 ## The access-asymmetry thesis (derived from the wheel)
 

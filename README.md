@@ -45,10 +45,10 @@ The **Rulebook** tab renders live from the config data.
 **A character is one colour** (White = W, Red = R). **A verb is tagged with one or more
 colours; a character can do a verb iff its colour is among the tags** (`canDo`). That single
 rule produces everything:
-- a **one-colour** verb → only one character reaches it (a de-facto *signature*): `enact_decree`
-  {W}, `strike` {R};
-- a **two-adjacent-colour** verb → shared by both wheel neighbours (a *wing/edge* verb):
-  `rally_supporters` {W,G}, `muster_zealots` {R,G};
+- a **one-colour** verb → only one character reaches it (a de-facto *signature*): `mark` {W},
+  `strike` {R};
+- a **two-adjacent-colour** (or more) verb → shared by the neighbours on the wheel:
+  `rally_supporters` {W,G}, `muster_zealots` {R,G}, `enact_decree` {W,U,G};
 - a character's **shard** is *derived* (`shardOf`) — the colours across the verbs it can reach —
   never declared. It comes out as centre + wings because tags follow wheel adjacency.
 
@@ -58,9 +58,14 @@ Units are two currencies, one per green wheel-edge:
   spent by `strike`.
 
 White is W, and no zealot-making verb is tagged W, so White is **structurally non-militant** — it
-can't muster or strike, with no special case in code. Green (when built) is G and sits on *both*
-green edges, so it makes both currencies. **Decrees** are standing rules White installs that hook
-every verb; White scores by skimming Mandate when others comply (legitimacy), not by acting.
+can't muster or strike, no special case in code. Green (when built) is G and sits on *both* green
+edges, so it makes both currencies.
+
+**Decrees** are standing table-rules, enacted by anyone in {W,U,G} (White backs platforms, Blue
+plays tempo bets, Green stabilises), that hook every player's verbs. They pay no one for
+ownership. **White's signature is `mark`** — it places a fixed pool of tokens (3) on decrees, and
+scores when a *marked* decree "bites" (its rider is complied with, or an always-clause fires).
+Legitimacy: White scores when the table acts under the rules it backed.
 
 See `the-character-model.md` for the full design.
 

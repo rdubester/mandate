@@ -1,5 +1,5 @@
 import type { BoardProps } from "boardgame.io/react";
-import { strikeCost, canDo, type GameState } from "./game";
+import { strikeCost, canDo, allDecreesInPlay, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
 
 type Props = BoardProps<GameState>;
@@ -83,8 +83,9 @@ export function MandateBoard(props: Props) {
       <section className={`faction-panel ${active === WHITE ? "active" : ""}`}>
         <h2>White — Assembly</h2>
         <div className="resources">
-          deck: {G.white.deck.length} · supporters: {G.white.supporters} · zealots:{" "}
-          {G.white.zealots} <span className="rb-muted">(can't make any)</span>
+          deck: {G.white.deck.length} · supporters: {G.white.supporters} · markers:{" "}
+          {"●".repeat(G.whiteMarkers)}
+          {"○".repeat(G.marks.length)} ({G.whiteMarkers} of {CONFIG.white.markers} free)
         </div>
 
         <div className="row">
@@ -103,12 +104,22 @@ export function MandateBoard(props: Props) {
             </div>
           </div>
           <div className="col">
-            <h3>Decrees in play</h3>
+            <h3>Decrees in play (click to mark)</h3>
             <div className="card-list">
-              {G.white.decreesInPlay.map((id, i) => (
-                <DecreeCard key={i} id={id} />
-              ))}
-              {G.white.decreesInPlay.length === 0 && <em>none</em>}
+              {allDecreesInPlay(G).map(({ id, owner }, i) => {
+                const marked = G.marks.includes(id);
+                const canMark =
+                  active === WHITE && !gameOver && !marked && G.whiteMarkers > 0;
+                return (
+                  <DecreeCard
+                    key={i}
+                    id={id}
+                    onClick={canMark ? () => moves.mark(id) : undefined}
+                    label={marked ? "◆ marked" : owner === RED ? "(red's)" : "mark"}
+                  />
+                );
+              })}
+              {allDecreesInPlay(G).length === 0 && <em>none</em>}
             </div>
           </div>
         </div>
@@ -123,6 +134,9 @@ export function MandateBoard(props: Props) {
             {canDo(WHITE, "deliberate") && (
               <button onClick={() => moves.deliberate()}>Deliberate (draw 1)</button>
             )}
+            <span className="rb-muted">
+              · enact a decree from hand, or click a decree above to mark it (signature)
+            </span>
           </div>
         )}
       </section>

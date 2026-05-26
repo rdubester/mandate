@@ -27,6 +27,11 @@ export interface GameState {
   mandate: Record<FactionId, number>;
   white: PlayerState;
   red: PlayerState;
+  // White's platform markers. `markers` = tokens still in the pool; `marks` = decree
+  // ids (on any player's board) currently carrying a White token. White scores when a
+  // marked decree's output bites. A token returns to the pool when its decree leaves play.
+  whiteMarkers: number;
+  marks: string[];
   log: string[];
 }
 
@@ -64,7 +69,7 @@ interface DecreeMods {
   yield_delta: number;
 }
 
-function allDecreesInPlay(G: GameState): Array<{ owner: FactionId; id: string }> {
+export function allDecreesInPlay(G: GameState): Array<{ owner: FactionId; id: string }> {
   const out: Array<{ owner: FactionId; id: string }> = [];
   for (const owner of [WHITE, RED] as const) {
     for (const id of G[playerKey(owner)].decreesInPlay) out.push({ owner, id });
@@ -97,7 +102,7 @@ function fireDecrees(
 ): DecreeMods {
   const mods: DecreeMods = { cost_delta: 0, extra_draw: 0, yield_delta: 0 };
 
-  for (const { owner, id } of allDecreesInPlay(G)) {
+  for (const { id } of allDecreesInPlay(G)) {
     const spec = DECREES[id];
     if (!spec || !matches(spec.trigger, verb, detail)) continue;
 
@@ -108,7 +113,7 @@ function fireDecrees(
       }
     }
 
-    // Rider (the 'may'): offer to the acting player.
+    // Rider (the 'may'): offer to the acting player. `complied` = the output fired.
     let complied = false;
     if (spec.rider && wantsRider()) {
       complied = true;
@@ -117,14 +122,15 @@ function fireDecrees(
       }
     }
 
-    // Scoring: owner skims Mandate.
-    if (spec.score) {
+    // Scoring: decrees pay no one for ownership. White scores ONLY if its marker is on
+    // this decree AND the output "bit" (rider complied, or an always-clause fired).
+    if (spec.score && G.marks.includes(id)) {
       const { when, amount } = spec.score;
-      const pay = (when === "compliance" && complied) || when === "always";
-      if (pay && amount) {
-        G.mandate[owner] += amount;
+      const bit = (when === "compliance" && complied) || when === "always";
+      if (bit && amount) {
+        G.mandate[WHITE] += amount;
         G.log.push(
-          `  · decree '${id}' (${when}): ${playerKey(owner)} +${amount} Mandate` +
+          `  · marked decree '${id}' bites (${when}): white +${amount} Mandate` +
             (complied ? ` [${playerKey(player)} complied]` : ""),
         );
       }
@@ -184,6 +190,19 @@ const enactDecree: Move<GameState> = ({ G, playerID, ctx }, cardId: string) => {
   p.decreesInPlay.push(cardId);
   p.playedDecreeThisTurn = true;
   G.log.push(`${playerKey(playerID as FactionId)} enacts decree '${cardId}'`);
+};
+
+// White's signature: spend a marker from the pool onto a decree in play (any board).
+// White then scores when that decree's output bites. Markers are scarce (whiteMarkers).
+const mark: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) => {
+  if (!playerID || !canAct(playerID, ctx, "mark")) return INVALID_MOVE;
+  if (G.whiteMarkers <= 0) return INVALID_MOVE; // pool empty
+  if (G.marks.includes(decreeId)) return INVALID_MOVE; // already marked
+  const inPlay = allDecreesInPlay(G).some((d) => d.id === decreeId);
+  if (!inPlay) return INVALID_MOVE; // can only mark a decree on the table
+  G.whiteMarkers -= 1;
+  G.marks.push(decreeId);
+  G.log.push(`white marks decree '${decreeId}' (${G.whiteMarkers} markers left)`);
 };
 
 function growUnits(
@@ -256,6 +275,17 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
   if (idx === -1) return INVALID_MOVE;
   p.zealots -= cost;
   G[playerKey(opp)].decreesInPlay.splice(idx, 1);
+  // If no copy of this decree id remains in play, any White marker on it returns to the
+  // pool (the platform White was defending is gone).
+  const stillInPlay = allDecreesInPlay(G).some((d) => d.id === decreeId);
+  if (!stillInPlay) {
+    const mi = G.marks.indexOf(decreeId);
+    if (mi >= 0) {
+      G.marks.splice(mi, 1);
+      G.whiteMarkers += 1;
+      G.log.push(`  · white's marker on '${decreeId}' returns to pool`);
+    }
+  }
   G.mandate[me] += CONFIG.scoring.strike_landed.mandate_per_strike;
   G.log.push(
     `${playerKey(me)} strikes decree '${decreeId}' off ${playerKey(opp)}'s board: +${CONFIG.scoring.strike_landed.mandate_per_strike} Mandate`,
@@ -318,6 +348,8 @@ export const MandateGame: Game<GameState> = {
       mandate: { [WHITE]: 0, [RED]: 0 },
       white,
       red,
+      whiteMarkers: CONFIG.white.markers,
+      marks: [],
       log: [`--- game start, target = ${CONFIG.mandate_target} ---`],
     };
   },
@@ -337,6 +369,7 @@ export const MandateGame: Game<GameState> = {
 
   moves: {
     enactDecree,
+    mark,
     rallySupporters,
     musterZealots,
     deliberate,
