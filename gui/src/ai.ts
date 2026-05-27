@@ -6,7 +6,7 @@
 
 import type { AiEnumerate, Game } from "boardgame.io";
 import { MCTSBot } from "boardgame.io/ai";
-import { CONFIG, DECREES, canDo, type SeatId } from "./config";
+import { CONFIG, DECREES, SEATS, canDo, type SeatId } from "./config";
 import {
   factionOf,
   supportOn,
@@ -102,51 +102,60 @@ function makeRng(seed?: number): () => number {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
 
-// Build a determinizing MCTSBot class for a given game. Factory (takes `game`) so this module
-// has no load-time dependency on game.ts's MandateGame (which imports enumerateMoves from here).
-// MCTSBot values a move ONLY by win/loss unless given `objectives`. With none, a near-certain
-// loser sees every move as equally doomed and plays ~random — flailing (e.g. Red wasting actions
-// on useless rallies) AND making "is the game close?" unmeasurable. We give a GRADED Mandate
-// objective: a staircase of thresholds (each a fraction of target) the searching seat scores by
-// reaching, weighted well below a win. So even a losing bot climbs its own score — it plays to
-// keep it close instead of throwing. (MCTS short-circuits a playout at the first met objective,
-// returning the summed weight; thresholds fire only on real progress, not from turn 1.)
-function mandateObjectives(seat: string) {
-  const target = CONFIG.mandate_target;
-  const steps = [0.25, 0.5, 0.75]; // climb at quarter / half / three-quarter target
-  const obj: Record<string, { checker: (G: GameState) => boolean; weight: number }> = {};
-  for (const frac of steps) {
-    obj[`mandate_${frac}`] = {
-      checker: (G: GameState) => (G.mandate[seat as SeatId] ?? 0) >= target * frac,
-      weight: frac * 0.5, // sum maxes at ~0.75 — below a win (1), so winning still dominates
-    };
-  }
-  return obj;
+// Whoever leads the shared Mandate track right now (a provisional verdict for a playout that
+// caps before a real game-end). Returns a seat id, or null on a tie.
+function mandateLeader(G: GameState): SeatId | null {
+  const [a, b] = SEATS;
+  if (G.mandate[a] === G.mandate[b]) return null;
+  return G.mandate[a] > G.mandate[b] ? a : b;
 }
 
+// Build a determinizing MCTSBot class for a given game. Factory (takes `game`) so this module
+// has no load-time dependency on game.ts's MandateGame (which imports enumerateMoves from here).
+//
+// Two overrides on the stock bot, both about playout QUALITY:
+//   - play(): determinize hidden zones before searching (see above).
+//   - playout(): a turn is ~4-5 MOVES, so a ~15-turn game is ~65 moves — stock playouts cap at
+//     playoutDepth and return `undefined` (zero signal: backpropagate ignores it). Most playouts
+//     never reach a real end, so the bot was learning from noise (and couldn't tell a no-op like
+//     Red-rallies-for-nothing from a useful move). We instead score a capped playout by the
+//     MANDATE LEADER — a provisional winner — flowing through the SAME seat-relative win-credit
+//     as a true game-end. Now every playout is decisive, and a rollout that wasted actions
+//     (gained no Mandate) loses the provisional verdict → the bot drops no-ops on its own, no
+//     hardcoding. This is the core fix for both bot trust and (with depth) speed.
 export function makeMCTSBot(
   game: Game<GameState>,
   opts: { iterations?: number; playoutDepth?: number; seed?: number } = {},
 ) {
   const iterations = opts.iterations ?? 200;
-  // Games run ~15 turns, so depth 50 wastes most of each playout running PAST gameover.
-  // Profiling: 50→20 depth ≈ 2× faster with no decision degradation (sim/_profile findings).
-  const playoutDepth = opts.playoutDepth ?? 25;
+  // Depth is in MOVES. Capped playouts are now scored (not wasted), so depth trades cost vs.
+  // how often we reach a REAL end; ~40 reaches game-end for most ~65-move games, the rest get
+  // the provisional-winner eval.
+  const playoutDepth = opts.playoutDepth ?? 40;
   return class DeterminizingBot extends MCTSBot {
     private rng = makeRng(opts.seed);
     constructor(botOpts: Record<string, unknown>) {
-      super({
-        ...botOpts,
-        game,
-        enumerate: game.ai!.enumerate,
-        iterations,
-        playoutDepth,
-        // The searching seat is ctx.currentPlayer; reward ITS Mandate progress.
-        objectives: (_G: GameState, ctx: { currentPlayer: string }) => mandateObjectives(ctx.currentPlayer),
-      } as never);
+      super({ ...botOpts, game, enumerate: game.ai!.enumerate, iterations, playoutDepth } as never);
     }
     async play(state: Parameters<MCTSBot["play"]>[0], playerID: string) {
       return super.play(determinize(state as { G: GameState }, this.rng) as typeof state, playerID);
+    }
+    // Reimplements the stock playout loop, but a depth-capped (non-terminal) result returns a
+    // provisional winner by Mandate lead instead of the stock `undefined` (= no signal).
+    playout({ state }: { state: { G: GameState; ctx: { gameover?: unknown; currentPlayer: string; activePlayers?: Record<string, string> | null } } }) {
+      let s = state;
+      for (let i = 0; i < playoutDepth && s.ctx.gameover === undefined; i++) {
+        const ctx = s.ctx;
+        const playerID = ctx.activePlayers ? Object.keys(ctx.activePlayers)[0] : ctx.currentPlayer;
+        const moves = (this as unknown as { enumerate: Function }).enumerate(s.G, ctx, playerID);
+        if (!moves || moves.length === 0) break;
+        const id = (this as unknown as { random: (n: number) => number }).random(moves.length);
+        s = (this as unknown as { reducer: Function }).reducer(s, moves[id]);
+      }
+      if (s.ctx.gameover !== undefined) return s.ctx.gameover; // real end → true result
+      // Capped before the end → provisional verdict by who leads the Mandate track.
+      const leader = mandateLeader(s.G);
+      return leader === null ? { draw: true } : { winner: leader };
     }
   };
 }
