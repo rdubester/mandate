@@ -96,6 +96,13 @@ Centre perks are never lent out: **score + Archive ride Blue's seat, not the car
 - Blue's draw volume is its most sensitive knob — it feeds both the engine and score income.
 - Sweep Red's raid cost: dipping should be a deliberate pivot, not free and not never-worth-it.
 - Long Blue turns are a table-feel risk in multiplayer even if balanced; watch game pace.
+- **Does the rider take/decline lever come alive?** The upkeep rider-fork (a player may
+  decline a decree's "may draw +1") is inert in W-v-R: Red doesn't draw, and White only ever
+  complies with its own supported decree. The tension needs a NON-OWNER drawing under someone
+  else's supported decree — which is exactly Blue (it draws constantly; White can support a
+  draw-triggered decree that scores White off Blue's draws). Sim-check when Blue lands: does
+  MCTS-Blue actually decline a White-supported draw rider when complying would feed White more
+  than the extra card helps Blue? If it never declines, the fork isn't earning its keep.
 
 ## Open questions
 
