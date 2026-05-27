@@ -9,4 +9,44 @@ the result (win rate, mean game length), and the takeaway. Append; don't rewrite
 
 ## Log
 
-*(empty — the next tuning pass starts the log)*
+### 2026-05-26 — breezy rebalance + knockback cut + tax decrees score + honest MCTS
+
+White-vs-Red two-faction slice. Sequence of changes and `npm run sim` reads:
+
+- **Game length / target.** Games were dragging to ~164 turns (often the 200 cap) — bad for
+  MCTS and human play. `mandate_target` 100→20, decree bite amount +1→+3 (the active scoring
+  decrees). Result: **~20-turn games** (range 15–24). Sweep finding: bite=3 is what keeps
+  White viable in a short game; the residual Red-favoredness was partly White scoring too
+  slowly per bite, not just length.
+- **Knockback cut.** Mandate-strike was +4 to Red AND −2 to White; the −2 strip-mined
+  White's bites (White earned ~8 from bites, netted ~3). `marker_knockback` 2→0 (a
+  Mandate-strike is pure scoring now; the field stays at base 0 as an opt-in decree lever).
+  Design reason: deleting points off another track is unfun scoreboard-PvP — the fight
+  belongs on the board.
+- **Every supported decree scores (incl. tax decrees).** `martial_restraint` / `writ_of_order`
+  gained a `score`, so a supported tax decree both taxes Red AND pays White when it bites —
+  Red can no longer ignore decrees. MCTS logs then showed real board-fight (Red diverts to
+  clear decrees; ~4.5 decree-strikes/game vs ~0 before).
+- **MCTS determinization (correctness fix).** The decree deck ORDER is hidden, but MCTSBot
+  searches the true state — it had been PEEKING at the deck all session. boardgame.io has no
+  built-in hidden-info handling for bots (`playerView` is a client/network filter only;
+  confirmed via docs + issue #383/#1163). Added PIMC determinization (shuffle hidden zones in
+  a copy per decision) in `sim/driver.ts`.
+
+**Win-rate progression (MCTS, the trustworthy read), White %:**
+| state | White % |
+|---|---|
+| baseline (knockback on, tax scoreless) | 0% |
+| − knockback | 17% |
+| + tax decrees score | 37.5% (but bot was PEEKING the deck) |
+| + determinization (honest) | **55%** (n=20, 60 iters) |
+
+Takeaway: honest play shows a **close, interactive matchup (~55/45 White), n=20 so ±**. The
+peek was worth ~18pts to Red. Scripted-bot reads run hotter for White (~52/48) and lie about
+strong play — trust MCTS. Open: confirm 55/45 with a bigger batch before calling it.
+
+**Sim method note (PIMC vs ISMCTS):** current determinization is PIMC — one sample/decision,
+the standard baseline; cheap and fine while hidden info is just the small decree deck. Known
+literature weakness is *strategy fusion*; the upgrade is ISMCTS (search over information sets),
+reserved for when Blue's Archive/commons makes the hidden info large enough that PIMC plays it
+incoherently. Don't pre-build ISMCTS.
