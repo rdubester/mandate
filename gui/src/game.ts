@@ -139,11 +139,12 @@ function matches(
   return Object.entries(trigger.detail).every(([k, v]) => detail[k] === v);
 }
 
-// Compliance policy: the acting player decides whether to take an offered rider. Default
-// greedy-accept, so the choice point exists but current play takes every beneficial rider.
-// Hook for smarter policies later.
-function wantsRider(): boolean {
-  return true;
+// Compliance: the acting player chooses whether to take each offered rider. The choice is
+// made UP FRONT as part of the move (the `decline` set names the decree ids whose riders to
+// refuse this action) — not mid-resolution — so it's a normal move the bot can pick, no
+// mid-action interrupt. Default (empty decline set) = greedy accept.
+function wantsRider(decreeId: string, decline: Set<string>): boolean {
+  return !decline.has(decreeId);
 }
 
 function freshEvent(
@@ -167,15 +168,17 @@ function freshEvent(
 }
 
 // Seed an event with its base parameters and run the full decree chain (WITH supporter
-// scoring payouts). This is what the actual moves call.
+// scoring payouts). This is what the actual moves call. `decline` = decree ids whose riders
+// the acting player refuses this action (default: accept all).
 function fireVerb(
   G: GameState,
   verb: string,
   seat: SeatId,
   base: Partial<VerbEvent> = {},
   detail: Record<string, string> = {},
+  decline: Set<string> = new Set(),
 ): VerbEvent {
-  return runDecreeChain(G, freshEvent(verb, base, detail), seat, true);
+  return runDecreeChain(G, freshEvent(verb, base, detail), seat, true, decline);
 }
 
 // Pure preview: run the ops chain to see the resulting event WITHOUT scoring/logging side
@@ -187,7 +190,7 @@ function previewVerb(
   detail: Record<string, string> = {},
 ): VerbEvent {
   // Seat is irrelevant in preview (scoring=false → no payouts, no log); pass the first seat.
-  return runDecreeChain(G, freshEvent(verb, base, detail), SEATS[0], false);
+  return runDecreeChain(G, freshEvent(verb, base, detail), SEATS[0], false, new Set());
 }
 
 // Pass the event through every in-play decree that matches its verb/detail. Each decree may
@@ -199,6 +202,7 @@ function runDecreeChain(
   ev: VerbEvent,
   seat: SeatId,
   scoring: boolean,
+  decline: Set<string>,
 ): VerbEvent {
   for (const id of G.decreesInPlay) {
     const spec = DECREES[id];
@@ -206,9 +210,9 @@ function runDecreeChain(
 
     applyOps(ev, spec.effect); // ambient (no choice)
 
-    // Rider (the 'may'): the actor chooses. `complied` = the output fired.
+    // Rider (the 'may'): the actor chose up front (decline set). `complied` = output fired.
     let complied = false;
-    if (spec.rider && wantsRider()) {
+    if (spec.rider && wantsRider(id, decline)) {
       complied = true;
       applyOps(ev, spec.rider.effect);
     }
@@ -471,18 +475,26 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
   );
 };
 
-// ---- turn hooks ------------------------------------------------------------
+// ---- upkeep ----------------------------------------------------------------
 
-// Upkeep draw routes through the hook-aware draw so 'when a player draws' decrees fire on
-// the upkeep draw too. Draws from whichever SHARED deck the faction reads (drawsFrom).
-function upkeepDraw(G: GameState, next: SeatId): void {
-  const spec = FACTIONS[factionOf(G, next)];
-  if (spec.draw_per_turn <= 0 || !spec.drawsFrom) return;
-  const decks = deckFor(G, spec.drawsFrom);
-  if (!decks || (decks.deck.length === 0 && decks.discard.length === 0)) return;
-  const drawn = drawCards(G, next, spec.draw_per_turn, spec.drawsFrom);
-  if (drawn > 0) G.log.push(`  · ${label(G, next)} draws ${drawn}`);
-}
+// drawUpkeep is the mandatory first move of every turn (the `upkeep` stage). It fires the
+// once-per-turn 'upkeep' decree hook — which is where a rider like civic_endowment's "may
+// draw +1" lives — then draws the resolved number of cards, then advances to the `main`
+// stage. `decline` names the upkeep-decree ids whose riders this player refuses (so the
+// take/decline of an upkeep rider is a normal up-front move choice, forkable in enumerate).
+const drawUpkeep: Move<GameState> = ({ G, playerID, events }, decline: string[] = []) => {
+  if (!playerID) return INVALID_MOVE;
+  const seat = playerID as SeatId;
+  const spec = FACTIONS[factionOf(G, seat)];
+  let drew = 0;
+  if (spec.draw_per_turn > 0 && spec.drawsFrom) {
+    // Fire the upkeep hook once; civic_endowment-style riders may bump draws (or be declined).
+    const ev = fireVerb(G, "upkeep", seat, { draws: spec.draw_per_turn }, {}, new Set(decline));
+    drew = drawCards(G, seat, Math.max(0, ev.draws), spec.drawsFrom);
+  }
+  G.log.push(`${label(G, seat)} upkeep${drew ? `: draws ${drew}` : ""}`);
+  events.endStage(); // → main stage
+};
 
 // ---- game ------------------------------------------------------------------
 
@@ -540,26 +552,38 @@ export const MandateGame: Game<GameState> = {
     };
   },
 
+  // Each turn runs two STAGES: `upkeep` (the player resolves its once-per-turn draw + any
+  // upkeep-decree riders, via exactly one drawUpkeep move) → `main` (its actions_per_turn
+  // actions). Stages reset every turn automatically. The upkeep draw used to live in onEnd
+  // (automatic, unchoosable); making it a move lets the player CHOOSE rider take/decline and
+  // lets MCTS see it. No onEnd hook needed — decrees score live via verb hooks.
+  // Total moves per turn = 1 upkeep + actions_per_turn main. The upkeep stage's activePlayers
+  // limit (min/max 1) forces exactly one drawUpkeep, then `next: "main"` auto-advances; the
+  // turn-level min/max ends the turn once the main actions are spent.
   turn: {
-    minMoves: CONFIG.actions_per_turn,
-    maxMoves: CONFIG.actions_per_turn,
-    onEnd: ({ G, ctx }) => {
-      // No decree-scoring pass here — decrees score live, via the verb hooks, when players
-      // act under the rules. End of turn just draws for the next seat and hands off.
-      const next = opponentOf(ctx.currentPlayer as SeatId);
-      upkeepDraw(G, next);
-      G.log.push(`--- turn ${ctx.turn + 1}, ${label(G, next)} to act ---`);
+    minMoves: CONFIG.actions_per_turn + 1,
+    maxMoves: CONFIG.actions_per_turn + 1,
+    // Start the seat in `upkeep`; drawUpkeep calls events.endStage() to follow next:"main".
+    // (No maxMoves on the stage — that would exit to a NULL stage, where the main moves,
+    // being stage-scoped, are disallowed. endStage() transitions cleanly into `main`.)
+    activePlayers: { currentPlayer: "upkeep" },
+    stages: {
+      upkeep: {
+        moves: { drawUpkeep },
+        next: "main",
+      },
+      main: {
+        moves: {
+          enactDecree,
+          allocateSupporters,
+          rallySupporters,
+          musterZealots,
+          deliberate,
+          strikeMandate,
+          strikeDecree,
+        },
+      },
     },
-  },
-
-  moves: {
-    enactDecree,
-    allocateSupporters,
-    rallySupporters,
-    musterZealots,
-    deliberate,
-    strikeMandate,
-    strikeDecree,
   },
 
   // First past the post on the shared track — decided on SEATS (winner is a seat id), so a
@@ -590,12 +614,37 @@ export const MandateGame: Game<GameState> = {
   },
 };
 
-function enumerateMoves(G: GameState, ctx: { currentPlayer: string }): AiEnumerate {
+// Which stage the active seat is in (boardgame.io tracks it in ctx.activePlayers).
+function stageOf(ctx: { currentPlayer: string; activePlayers?: Record<string, string> | null }): string {
+  return ctx.activePlayers?.[ctx.currentPlayer] ?? "main";
+}
+
+function enumerateMoves(
+  G: GameState,
+  ctx: { currentPlayer: string; activePlayers?: Record<string, string> | null },
+): AiEnumerate {
   const out: AiEnumerate = [];
   const seat = ctx.currentPlayer as SeatId;
   const faction = factionOf(G, seat);
   const p = G.players[seat];
 
+  // UPKEEP stage: the only move is drawUpkeep. Fork it over the power set of in-play upkeep
+  // decrees that offer a rider — one option per take/decline combination (small: 0-1 such
+  // decrees today → 1-2 options). The decline arg lists the ids whose riders to refuse.
+  if (stageOf(ctx) === "upkeep") {
+    const upkeepRiders = G.decreesInPlay.filter(
+      (id) => DECREES[id]?.trigger.on === "upkeep" && DECREES[id]?.rider,
+    );
+    const uniq = [...new Set(upkeepRiders)];
+    const combos = 1 << uniq.length; // power set
+    for (let mask = 0; mask < combos; mask++) {
+      const declined = uniq.filter((_, i) => mask & (1 << i));
+      out.push({ move: "drawUpkeep", args: [declined] });
+    }
+    return out;
+  }
+
+  // MAIN stage: the action moves.
   // enact_decree: one option per distinct card in hand the seat could enact.
   if (canDo(faction, "enact_decree")) {
     for (const id of new Set(p.hand)) out.push({ move: "enactDecree", args: [id] });

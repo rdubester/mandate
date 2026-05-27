@@ -245,8 +245,10 @@ export const DECREES: Record<string, Decree> = {
     id: "civic_endowment",
     name: "Civic Endowment",
     type: "positive",
-    text: "When any player draws a card, they may draw +1. If supported & they do, supporters score 3.",
-    trigger: { on: "draw" },
+    text: "At your upkeep, you may draw +1. If supported & you do, supporters score 3.",
+    // Fires on the once-per-turn UPKEEP beat, NOT every card draw — so it stays one clean
+    // choice/turn instead of bookkeeping spam when a faction draws a lot (e.g. Blue later).
+    trigger: { on: "upkeep" },
     rider: { effect: [{ op: "add", path: "draws", n: 1 }], describe: "draw +1 card" },
     score: { when: "compliance", amount: 3 },
   },

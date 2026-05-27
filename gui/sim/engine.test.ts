@@ -35,6 +35,16 @@ function G(c: ReturnType<typeof newClient>): GameState {
 function active(c: ReturnType<typeof newClient>): FactionId {
   return c.getState()!.ctx.currentPlayer as FactionId;
 }
+// The turn now opens with an `upkeep` stage (one mandatory drawUpkeep) before the seat can
+// take its main-stage actions. Tests that drive moves by hand must clear upkeep first; this
+// resolves it (accepting any rider) if the active seat is currently in the upkeep stage.
+function upkeep(c: ReturnType<typeof newClient>) {
+  const ctx = c.getState()!.ctx as { currentPlayer: string; activePlayers?: Record<string, string> | null };
+  if (ctx.activePlayers?.[ctx.currentPlayer] === "upkeep") {
+    c.updatePlayerID(ctx.currentPlayer);
+    c.moves.drawUpkeep([]);
+  }
+}
 
 // ---- the availability model ------------------------------------------------
 
@@ -125,6 +135,7 @@ describe("shared resources", () => {
       if (s.ctx.gameover) break;
       const seat = s.ctx.currentPlayer as FactionId;
       c.updatePlayerID(seat);
+      if (s.ctx.activePlayers?.[seat] === "upkeep") { c.moves.drawUpkeep([]); continue; }
       if (seat === WHITE) {
         const handBefore = s.G.players[WHITE].hand.length;
         // Enact a held decree to feed eventual recirculation; else deliberate to draw.
@@ -164,18 +175,22 @@ describe("two-currency economy", () => {
     // White takes its 2 moves; then Red musters to afford a strike, ending its turn. Next
     // Red turn it strikes from the stockpile.
     seatTo(c, WHITE);
+    upkeep(c);
     c.moves.rallySupporters();
     c.moves.rallySupporters();
     expect(active(c)).toBe(RED);
     seatTo(c, RED);
+    upkeep(c);
     c.moves.musterZealots(); // action 1
     c.moves.musterZealots(); // action 2 → turn ends with a stockpile
     // back to Red after White's turn
     seatTo(c, WHITE);
+    upkeep(c);
     c.moves.rallySupporters();
     c.moves.rallySupporters();
     expect(active(c)).toBe(RED);
     seatTo(c, RED);
+    upkeep(c);
     const z0 = G(c).players[RED].zealots;
     const m0 = G(c).mandate[RED];
     c.moves.strikeMandate();
@@ -186,31 +201,38 @@ describe("two-currency economy", () => {
 
 // ---- decrees: shared verb + supporter-scoring ------------------------------
 
-// Advance until it's White's turn with no moves used yet — a clean slate to test a
-// 2-action White sequence. White burns time with `deliberate` (no resource side-effects,
-// unlike rally which would pollute the supporter stock) when the shared deck has cards,
-// else rally as a fallback. Red just musters (scores nothing, can't end the game first).
+// Advance until it's White's turn, upkeep just resolved, ready for its main actions — a
+// clean slate to test a 2-action White MAIN sequence. White burns time with `deliberate`
+// (no resource side-effects, unlike rally which would pollute the supporter stock) when the
+// shared deck has cards, else rally. Red just musters. Stops the instant White finishes its
+// upkeep (so the caller has White's full 2 main actions to spend).
 function freshWhiteTurn(c: ReturnType<typeof newClient>): void {
-  for (let guard = 0; guard < 50; guard++) {
+  for (let guard = 0; guard < 80; guard++) {
     const s = c.getState()!;
     if (s.ctx.gameover) return;
-    if (s.ctx.currentPlayer === WHITE && (s.ctx.numMoves ?? 0) === 0) return;
-    c.updatePlayerID(s.ctx.currentPlayer);
-    if (s.ctx.currentPlayer === WHITE) {
+    const seat = s.ctx.currentPlayer as FactionId;
+    const stage = (s.ctx.activePlayers as Record<string, string> | null)?.[seat];
+    c.updatePlayerID(seat);
+    if (seat === WHITE) {
+      if (stage === "upkeep") { c.moves.drawUpkeep([]); return; } // upkeep done → main is ready
+      // White is mid-main (e.g. we entered on a leftover action) — burn it to hand off.
       if (s.G.decreeDeck.length > 0) c.moves.deliberate();
       else c.moves.rallySupporters();
     } else {
-      c.moves.musterZealots();
+      if (stage === "upkeep") c.moves.drawUpkeep([]);
+      else c.moves.musterZealots();
     }
   }
 }
 
 function driveUntilInPlay(c: ReturnType<typeof newClient>, decree: string): boolean {
-  for (let guard = 0; guard < 300; guard++) {
+  for (let guard = 0; guard < 400; guard++) {
     const s = c.getState()!;
     if (s.ctx.gameover) return false;
     const seat = s.ctx.currentPlayer as FactionId;
+    const stage = (s.ctx.activePlayers as Record<string, string> | null)?.[seat];
     c.updatePlayerID(seat);
+    if (stage === "upkeep") { c.moves.drawUpkeep([]); continue; } // resolve upkeep first
     if (seat === WHITE) {
       if (s.G.decreesInPlay.includes(decree)) return true;
       if (s.G.players[WHITE].hand.includes(decree)) c.moves.enactDecree(decree);
@@ -278,12 +300,19 @@ describe("supporter-scoring: only supported decrees bite (markers+shields collap
     // Advance to a Red turn where Red can afford a strike, then strike the Mandate track.
     for (let g = 0; g < 30; g++) {
       const s = c.getState()!;
-      if (s.ctx.currentPlayer === RED && G(c).players[RED].zealots >= 2) break;
+      if (
+        s.ctx.currentPlayer === RED &&
+        s.ctx.activePlayers?.[RED] !== "upkeep" &&
+        G(c).players[RED].zealots >= 2
+      )
+        break;
       c.updatePlayerID(s.ctx.currentPlayer);
-      if (s.ctx.currentPlayer === RED) c.moves.musterZealots();
+      if (s.ctx.activePlayers?.[s.ctx.currentPlayer] === "upkeep") c.moves.drawUpkeep([]);
+      else if (s.ctx.currentPlayer === RED) c.moves.musterZealots();
       else c.moves.deliberate();
     }
     seatTo(c, RED);
+    upkeep(c);
     expect(active(c)).toBe(RED);
     const wm0 = G(c).mandate[WHITE];
     c.moves.strikeMandate(); // Red strikes; martial_restraint bites for its White supporter
@@ -327,10 +356,12 @@ describe("supporter-scoring: only supported decrees bite (markers+shields collap
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     // It's White's turn; end it so Red can act with a zealot.
     seatTo(c, WHITE);
+    upkeep(c);
     c.moves.rallySupporters();
     c.moves.deliberate();
     expect(active(c)).toBe(RED);
     seatTo(c, RED);
+    upkeep(c);
     expect(G(c).decreesInPlay).toContain("open_records");
     if (G(c).players[RED].zealots < 1) c.moves.musterZealots(); // ensure affordable
     const m0 = G(c).mandate[RED];
