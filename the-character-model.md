@@ -19,15 +19,18 @@ That is the entire availability rule (`canDo` in `config.ts`). Everything the br
 "shard," "signature," and "wing" is **not declared anywhere** — it *emerges* from how verbs are
 tagged, and the tags follow the wheel's adjacency (order **W–U–B–R–G**):
 
-- A verb tagged with **one** colour is reachable by exactly one character. *That is what
-  "signature" means* — it's not a flag, it's just being the only holder of that colour. E.g.
-  `enact_decree` {W} → only White; `strike` {R} → only Red.
-- A verb tagged with **two adjacent** colours is a shared **wing/edge** verb, reachable by both
-  neighbours on the wheel. E.g. `rally_supporters` {W,G} → White and Green; `muster_zealots`
-  {R,G} → Red and Green.
-- A character's **shard** is then just *the set of colours appearing across the verbs it can
-  reach* (`shardOf`). It comes out as centre + two adjacent wings, for free, because the tags
-  follow adjacency. You never write a shard down; it's a consequence of the verb table.
+- A **signature** verb is tagged with **one** colour — reachable by exactly one character.
+  That's not a flag, it's just being the only holder of that colour. E.g. `allocate_supporters`
+  {W} → only White; `strike` {R} → only Red.
+- A **primitive** verb is tagged with **three adjacent** colours: a **home** colour plus its two
+  wheel neighbours — i.e. the shard centred on the home and the two shards holding it as a wing.
+  E.g. `enact_decree` (home W) → {G,W,U}; `rally_supporters` (home G) → {R,G,W}. **There are
+  never 2-colour verbs.** With one primitive and one signature per colour, the whole verb
+  vocabulary is capped at **10**.
+- A character's **shard** is design vocabulary, not an engine concept: by construction it is
+  just *its own colour + the two wheel neighbours* (the homes of the primitives it can reach).
+  You never write a shard down anywhere — not in the data, not in the code; the engine knows
+  nothing but colours-on-verbs and the membership check.
 
 This is strictly simpler than the old three-tier scaffolding (scoring rule / signature / shared,
 plus a declared shard) and produces the same structure. The brief's pentagon, wings, and "shard
@@ -60,25 +63,35 @@ depending on the matchup. Example: White can always `research` (once that's a sh
 against Red it chooses to research *more* than it would against Black. Access is structural;
 emphasis is strategic. (See `running-the-wheel.md`.)
 
-## The verbs, as currently built (White vs Red prototype)
+## The full verb grid (5 primitives + 5 signatures — the vocabulary ceiling)
 
-| verb | colours | reaches | role |
+| home | primitive (home + wings) | reachable by | signature (1 colour) |
 |---|---|---|---|
-| `allocate_supporters` | W | White | White's signature — place up to K supporters on decrees as *support* (see below) |
-| `enact_decree` | W, U, G | White (Blue, Green later) | shared — install a standing table rule |
-| `deliberate` | W | White | draw 1 from own deck (decree deck for now) |
-| `rally_supporters` | W, G | White, Green | G–W community edge → +supporters |
-| `strike` | R | Red | Red's signature + scoring; spend a zealot, score on landing |
-| `muster_zealots` | R, G | Red, Green | G–R authenticity edge → +zealots |
+| W | `enact_decree` {G,W,U} | Green, White, Blue | `allocate_supporters` {W} |
+| U | `draw/research` {W,U,B} | White, Blue, Black | `publish` / Archive {U} *(design)* |
+| B | `procure/convert` (market) {U,B,R} | Blue, Black, Red | circulation *(TBD)* {B} |
+| R | `muster_zealots` {B,R,G} | Black, Red, Green | `strike` {R} |
+| G | `rally_supporters` {R,G,W} | Red, Green, White | `procession` {G} *(design)* |
 
-`deliberate` is a placeholder name: it's "draw from your own deck," White-only for now. When
-**Blue** arrives it likely becomes a shared **W–U** verb ("research" — digs the research pool),
-and gets reskinned.
+Per-faction access mix (cards / units / market): White 2-1-0, Green 1-2-0, Blue 2-0-1,
+Red 0-2-1 (cards only via the market — it can't draw), Black 1-1-1. White↔Green and Blue↔Red are
+mirror images and Black is the balanced fixed point — the brief's reflection-through-Black
+symmetry, reappearing at the access level.
 
-Emergent shards today: White **WUG** (it reaches `enact_decree` {W,U,G}, so U lights up even
-though no Blue character exists yet), Red **RG**. B is still dark (no B-tagged verb built). The
-shards fill in automatically as verbs are added — they are nothing but the footprint of the
-verb tags.
+### As currently built (White vs Red prototype)
+
+| verb | home | colours | reaches today | role |
+|---|---|---|---|---|
+| `allocate_supporters` | W | W | White | White's signature — place up to K supporters on decrees as *support* (see below) |
+| `enact_decree` | W | W, U, G | White | the W-home primitive — install a standing table rule |
+| `deliberate` | U | W | White | the U-home draw primitive in embryo — draw from a shared deck (decree deck for now); widens to {W,U,B} and reskins as `research` when Blue lands |
+| `rally_supporters` | G | G, R, W | White, Red | the G-home primitive → +supporters (Red has no supporter sink yet, so it simply doesn't bother) |
+| `strike` | R | R | Red | Red's signature + scoring; spend a zealot, score on landing |
+| `muster_zealots` | R | R, B, G | Red | the R-home primitive → +zealots |
+
+In shard vocabulary: White plays as **GWU** and Red as **BRG** — but that's commentary on the
+table above, not a thing the engine (or the data) represents anywhere. As more primitives are
+built, each character's menu fills in toward its full shard automatically.
 
 ## Enact is shared; White's signature is `support` (one concept: scores AND defends)
 
@@ -123,17 +136,17 @@ the per-player keying is what lets two White seats juggle support on the shared 
 is a complexity cut — one verb, one state field, one token type. A future `support` variant could
 allow free reallocation between decrees; current build places from stock, strips on strike.)
 
-## The unit economy: two currencies from the two green edges
+## The unit economy: two currencies from the two unit primitives
 
-The wheel isn't just adjacency — **each edge names a shared concept**, and the unit economy is
-built from the two green edges:
+The unit economy is built from the two unit-minting primitives (one G-home, one R-home):
 
-- **G–W = community** → **supporters** (soft *stock*): numerous, granular — the
-  electorate/congregation. White's legitimacy fuel, spent to pass/sustain edicts. Worked by the
-  two characters touching the edge: White (W) and Green (G), via `rally_supporters` {W,G}.
-- **G–R = authenticity** → **zealots** (hard *flow*): the faithful-in-arms, spent directly as
-  ammunition for direct board actions (`strike`). Worked by Red (R) and Green (G), via
-  `muster_zealots` {R,G}.
+- **Community** → **supporters** (soft *stock*): numerous, granular — the
+  electorate/congregation. White's legitimacy fuel, Green's crop. Minted by the **G-home**
+  `rally_supporters` {R,G,W} — White courts citizens, Green grows the flock, Red does propaganda.
+- **Authenticity** → **zealots** (hard *flow*): the faithful-in-arms, spent directly as
+  ammunition for direct board actions (`strike`, later raids/conversions). Minted by the
+  **R-home** `muster_zealots` {B,R,G} — Red drafts, Green's faithful take up arms, Black hires
+  muscle.
 
 **No soldiers.** An earlier `zealots → convert → soldiers → strike` chain was cut; the refine
 step added nothing — zealots ARE the ammunition Red spends. Two unit nouns total, and that's the
@@ -141,20 +154,21 @@ ceiling; a third is the complexity alarm.
 
 What falls out of the geometry (not assigned):
 
-- **White is structurally non-militant.** White's colour is W; the only zealot-making verb,
-  `muster_zealots`, is tagged {R,G} — no W. White literally cannot reach it. Pacifism is a *gap
-  in the verb tags*, not a rule on White's card. (Engine-verified: `canDo(WHITE,"muster_zealots")
-  === false`.)
-- **Green is the dual-natured spring.** Green is G; G sits on *both* `rally_supporters` {W,G}
-  and `muster_zealots` {R,G}, so Green alone makes *both* currencies — the church commands both
-  the congregation and the faithful-in-arms. Every unit on the table traces upstream to Green.
-  (Engine-verified: a G character reaches both verbs.)
-- **White and Red share Green as upstream but draw opposite outputs** — White the soft side
-  (supporters), Red the hard side (zealots). Enemies across the wheel, both leaning on the same
-  neighbour for different things.
+- **White is structurally non-militant.** White's colour is W; the zealot-making verb is tagged
+  {B,R,G} — no W. White literally cannot reach it. Pacifism is a *gap in the verb tags*, not a
+  rule on White's card. (Engine-verified: `canDo(WHITE,"muster_zealots") === false`.)
+- **Blue never touches units at all** — U appears in neither unit primitive. The Institute's
+  weightlessness is also just a gap in the tags.
+- **Red and Green are the units pair** (the brief's primitive axis): both reach both unit
+  primitives. The difference is the *sinks*, not the sources — Red holds the sink that turns
+  flow into damage (`strike`); Green holds the sink that turns stock into points (`procession`)
+  plus decree access. Access can overlap; what you can *do with it* is what distinguishes.
+- **Sources can be wider than sinks.** Red can rally supporters today but has no supporter sink
+  (no allocate, no procession), so it simply doesn't bother — a structural fact bots discover on
+  their own, not a special case. Sinks, all of them signatures, are what stay scarce.
 - **Each cardinal faction self-sources its core input; only Black depends on the table.** Black
-  mints nothing — it brokers (`convert`) existing resources. Its dependence on everyone is its
-  identity (the fixed point), not a weakness. Black's exact conversion set is still open
+  mints only muscle — it brokers (`convert`) existing resources. Its dependence on everyone is
+  its identity (the fixed point), not a weakness. Black's exact conversion set is still open
   (build-last).
 
 The zealot scarcity that the old "Red's currency is expensive" multiplier encoded survives for
@@ -192,9 +206,9 @@ the brief's structure; it fills in as verbs are built):
 
 | Character | Colour | Eventually touches | Can't touch |
 |---|---|---|---|
-| **Red** | R | exchange, zealots, research (via B-wing) | decrees, supporters |
+| **Red** | R | zealots, supporters, exchange, research cards (via the market — no draw) | decrees, direct draw |
 | **Blue** | U | decrees, research, exchange | units (supporters & zealots) |
-| **Black** | B | research, exchange, brokers both currencies | decrees |
+| **Black** | B | research, exchange, zealots | decrees, supporters |
 | **White** | W | supporters, decrees, research | exchange, zealots |
 | **Green** | G | zealots, supporters, decrees | exchange, research |
 
@@ -260,9 +274,11 @@ break.
 COLOUR[character]      = one of W U B R G
 VERBS[]: { name, colours[], + effect fields (yields/spends/draws/scores) }
 canDo(character, verb) = COLOUR[character] ∈ verb.colours      # the whole rule
-shardOf(character)     = ⋃ colours of verbs the character can reach   # emergent
 DECREES{}: standing rules that hook the verb pipeline (trigger / effect / rider / score)
 ```
+
+(Shard / wing / home never appear in the engine — they're vocabulary for talking about the
+verb table, fully determined by the wheel order.)
 
 **Authoring content = adding rows.** Tag a verb with colours → it appears for the right
 characters, including as a borrowable wing tool.

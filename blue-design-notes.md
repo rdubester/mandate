@@ -61,11 +61,12 @@ No exile zone exists anywhere; everything not archived cycles through the common
 
 Centre perks are never lent out: **score + Archive ride Blue's seat, not the card.**
 
-- **Red** gets blue *cards*, not blue *verbs*: a Black B–R edge verb (working name "raid
-  the lab": spend a zealot, draw a research card) puts cards in Red's **hand**. Hand ≠
-  Archive — a hand is a transient options buffer (the agency of choosing which and when);
-  the Archive is a curated cycling deck that compounds. Red plays raided cards for the
-  one-shot effect; the card then goes to the commons discard. No archive, no publish, ever.
+- **Red** gets blue *cards*, not blue *verbs*: its slice of the B-home market/procure
+  primitive {U,B,R} ("raid the lab": spend a zealot, take a research card from the commons)
+  puts cards in Red's **hand**. Hand ≠ Archive — a hand is a transient options buffer (the
+  agency of choosing which and when); the Archive is a curated cycling deck that compounds.
+  Red plays raided cards for the one-shot effect; the card then goes to the commons discard.
+  No archive, no publish, ever.
   Zealots doing double duty (strike ammo vs raid fuel) keeps card-dipping a deliberate
   pivot rather than Red's default line.
 - **White** reaches research via the shared W–U verb (today's `deliberate`, reskinned when
