@@ -129,7 +129,9 @@ export function makeMCTSBot(
   opts: { iterations?: number; playoutDepth?: number; seed?: number } = {},
 ) {
   const iterations = opts.iterations ?? 200;
-  const playoutDepth = opts.playoutDepth ?? 50;
+  // Games run ~15 turns, so depth 50 wastes most of each playout running PAST gameover.
+  // Profiling: 50→20 depth ≈ 2× faster with no decision degradation (sim/_profile findings).
+  const playoutDepth = opts.playoutDepth ?? 25;
   return class DeterminizingBot extends MCTSBot {
     private rng = makeRng(opts.seed);
     constructor(botOpts: Record<string, unknown>) {
