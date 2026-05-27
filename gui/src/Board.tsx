@@ -63,6 +63,15 @@ export function MandateBoard(props: Props) {
   const gameOver = ctx.gameover;
   const canStrike = G.players[RED].zealots >= strikeCost(G);
 
+  // The turn opens in an `upkeep` stage (one mandatory drawUpkeep) before the seat can take
+  // its main actions. The action UI is only shown once we're past upkeep, into `main`.
+  const stage = (ctx.activePlayers as Record<string, string> | null)?.[active];
+  const inUpkeep = stage === "upkeep";
+  // Decrees in play that offer a rider on the upkeep beat — White may take or decline each.
+  const upkeepRiders = G.decreesInPlay.filter(
+    (id) => DECREES[id]?.trigger.on === "upkeep" && DECREES[id]?.rider,
+  );
+
   // White stages a support allocation (decree id → count) by clicking decrees, then commits
   // one action that places up to K supporters. Cleared after committing.
   const [pending, setPending] = useState<Record<string, number>>({});
@@ -96,12 +105,30 @@ export function MandateBoard(props: Props) {
             </span>
           ) : (
             <span>
-              Turn {ctx.turn} · <strong>{FACTION_NAME[active]}</strong> to act ·
-              moves left: {CONFIG.actions_per_turn - (ctx.numMoves ?? 0)}
+              Turn {ctx.turn} · <strong>{FACTION_NAME[active]}</strong> to act ·{" "}
+              {inUpkeep
+                ? "upkeep"
+                : `actions left: ${CONFIG.actions_per_turn + 1 - (ctx.numMoves ?? 0)}`}
             </span>
           )}
         </div>
       </header>
+
+      {/* Upkeep stage: the seat must resolve its once-per-turn draw before acting. Offers the
+          take/decline choice for any in-play upkeep rider (e.g. Civic Endowment's "may draw +1"). */}
+      {inUpkeep && !gameOver && (
+        <section className="upkeep-panel action-bar">
+          <strong>{FACTION_NAME[active]} upkeep —</strong>
+          <button onClick={() => moves.drawUpkeep([])}>
+            Draw{upkeepRiders.length ? " (take all riders)" : ""}
+          </button>
+          {upkeepRiders.map((id) => (
+            <button key={id} onClick={() => moves.drawUpkeep([id])}>
+              Draw, decline {DECREES[id]?.name ?? id}
+            </button>
+          ))}
+        </section>
+      )}
 
       <section className="scoreboard">
         <div className="player-score white">
@@ -172,7 +199,7 @@ export function MandateBoard(props: Props) {
           </div>
         </div>
 
-        {active === WHITE && !gameOver && (
+        {active === WHITE && !gameOver && !inUpkeep && (
           <div className="action-bar">
             {canDo(WHITE, "rally_supporters") && (
               <button onClick={() => moves.rallySupporters()}>
@@ -204,7 +231,7 @@ export function MandateBoard(props: Props) {
           zealots: {G.players[RED].zealots} · supporters: {G.players[RED].supporters}
         </div>
 
-        {active === RED && !gameOver && (
+        {active === RED && !gameOver && !inUpkeep && (
           <div className="action-bar">
             {canDo(RED, "muster_zealots") && (
               <button onClick={() => moves.musterZealots()}>
