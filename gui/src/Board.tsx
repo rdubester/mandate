@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { BoardProps } from "boardgame.io/react";
 import { strikeCost, decreeStrikeCost, canDo, supportOn, type GameState } from "./game";
 import { CONFIG, DECREES, WHITE, RED, FACTION_NAME, type FactionId } from "./config";
@@ -72,6 +72,17 @@ export function MandateBoard(props: Props) {
     (id) => DECREES[id]?.trigger.on === "upkeep" && DECREES[id]?.rider,
   );
 
+  // Auto-resolve upkeep when there's no choice to make (no rider to take/decline) — so the
+  // player isn't clicking a pointless "Draw" every turn. When a rider IS in play, the choice
+  // matters, so we leave it as buttons. (The engine keeps drawUpkeep an explicit move; this
+  // is purely a UI convenience for the human seat.)
+  useEffect(() => {
+    if (inUpkeep && !gameOver && upkeepRiders.length === 0) {
+      moves.drawUpkeep([]);
+    }
+    // Re-run whenever the active seat / stage changes.
+  }, [inUpkeep, gameOver, upkeepRiders.length, active]);
+
   // White stages a support allocation (decree id → count) by clicking decrees, then commits
   // one action that places up to K supporters. Cleared after committing.
   const [pending, setPending] = useState<Record<string, number>>({});
@@ -114,14 +125,12 @@ export function MandateBoard(props: Props) {
         </div>
       </header>
 
-      {/* Upkeep stage: the seat must resolve its once-per-turn draw before acting. Offers the
-          take/decline choice for any in-play upkeep rider (e.g. Civic Endowment's "may draw +1"). */}
-      {inUpkeep && !gameOver && (
+      {/* Upkeep stage with a RIDER CHOICE: the seat picks take-vs-decline before drawing.
+          (With no rider, upkeep auto-resolves via the effect above — no click needed.) */}
+      {inUpkeep && !gameOver && upkeepRiders.length > 0 && (
         <section className="upkeep-panel action-bar">
           <strong>{FACTION_NAME[active]} upkeep —</strong>
-          <button onClick={() => moves.drawUpkeep([])}>
-            Draw{upkeepRiders.length ? " (take all riders)" : ""}
-          </button>
+          <button onClick={() => moves.drawUpkeep([])}>Draw (take all riders)</button>
           {upkeepRiders.map((id) => (
             <button key={id} onClick={() => moves.drawUpkeep([id])}>
               Draw, decline {DECREES[id]?.name ?? id}
