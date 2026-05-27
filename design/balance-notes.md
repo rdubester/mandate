@@ -45,6 +45,26 @@ Takeaway: honest play shows a **close, interactive matchup (~55/45 White), n=20 
 peek was worth ~18pts to Red. Scripted-bot reads run hotter for White (~52/48) and lie about
 strong play — trust MCTS. Open: confirm 55/45 with a bigger batch before calling it.
 
+### 2026-05-26 (cont.) — confirmed at n=40 + health metrics + support cap
+
+`npm run analyze -- -n 40 --iters 60` (determinized MCTS). Added per-faction move-mix health
+to the analyzer (move-kinds used, top-move share, entropy) to catch degenerate lines, plus
+shortest/median/longest log dumps.
+
+- **First n=40 read:** White 48% / Red 53%, mean 16 turns. Move-mix HEALTHY both sides: 3.7-3.8
+  of 4 move-kinds used, top move 43%, entropy 0.91. Red's strikes split a real 22% Mandate /
+  22% decree — genuine race-vs-tear-down choice, not strike-spam. BUT 1/40 games stalled to 42
+  turns: White stacked 10+ support on one decree → un-removable fortress, neither side closing.
+- **Fix:** `supporter_cap_per_decree` = 3 — total support on a decree can't exceed it, so Red
+  can always strip it in ≤cap strikes. (Required updating 3 consumers: scripted bot, test
+  helper, enumerate.)
+- **Re-confirmed (n=40):** White 55% / Red 45%, mean 15.4, **max 26 (stall gone)**, 0 illegal
+  moves. Move-mix still healthy (entropy 0.90, no move >45%, Red strike split 20/20).
+
+**Status: White-vs-Red is DONE to a trustworthy bar** — balanced (~48-55% White across runs,
+i.e. ≈even), breezy (~16-turn games), varied contested play, no stalls/degenerate equilibria.
+Next faction can build on this baseline.
+
 **Sim method note (PIMC vs ISMCTS):** current determinization is PIMC — one sample/decision,
 the standard baseline; cheap and fine while hidden info is just the small decree deck. Known
 literature weakness is *strategy fusion*; the upgrade is ISMCTS (search over information sets),
