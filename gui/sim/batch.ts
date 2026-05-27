@@ -2,7 +2,7 @@
 // distribution. The "find a parameter band where neither has a trivially dominant
 // clock" tool (brief §10). Edit numbers in src/config.ts, re-run.
 //
-//   npm run sim                      # 200 scripted-bot games (fast)
+//   npm run sim                      # 200 random-bot games (fast)
 //   npm run sim -- -n 1000           # more games
 //   npm run sim -- --mcts -n 40      # MCTS-vs-MCTS (slow, measures the GAME not heuristics)
 //   npm run sim -- --mcts --iters 300 -n 30
@@ -11,7 +11,7 @@
 // wins?" — i.e. is the GAME balanced, independent of our hand-written heuristics. MCTS is
 // much slower (hundreds of playouts per move), so use small N.
 
-import { runGame, runGameMCTS, BASELINE_POLICIES, type GameResult } from "./driver";
+import { runGameRandom, runGameMCTS, type GameResult } from "./driver";
 import { CONFIG, WHITE, RED, FACTION_NAME, type FactionId } from "../src/config";
 
 function flagInt(argv: string[], flag: string, dflt: number): number {
@@ -38,16 +38,16 @@ async function main() {
   for (let i = 0; i < n; i++) {
     const r: GameResult = mcts
       ? await runGameMCTS({ iterations: iters })
-      : runGame(BASELINE_POLICIES);
+      : await runGameRandom();
     const key = r.winner === null ? "none" : r.winner;
     wins[key] = (wins[key] ?? 0) + 1;
     turns.push(r.turns);
-    if (mcts) process.stdout.write("."); // progress, since MCTS is slow
+    process.stdout.write("."); // progress dot per game
   }
   if (mcts) process.stdout.write("\n");
 
   const pct = (c: number) => `${((100 * c) / n).toFixed(1)}%`;
-  const bots = mcts ? `MCTS bots (${iters} iters)` : "baseline scripted bots";
+  const bots = mcts ? `MCTS bots (${iters} iters)` : "random bots";
   console.log(`\n=== ${n} games · target ${CONFIG.mandate_target} · ${bots} ===`);
   for (const f of [WHITE, RED] as FactionId[]) {
     console.log(`  ${FACTION_NAME[f].padEnd(18)} ${String(wins[f]).padStart(5)} (${pct(wins[f])})`);

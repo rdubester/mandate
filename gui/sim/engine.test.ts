@@ -18,7 +18,7 @@ import {
   canDo,
   type FactionId,
 } from "../src/config";
-import { runGame, BASELINE_POLICIES } from "./driver";
+import { runGameRandom } from "./driver";
 
 // A small harness around the headless client for direct move testing.
 function newClient() {
@@ -311,15 +311,15 @@ describe("supporter-scoring: only supported decrees bite (markers+shields collap
 // ---- liveness: games terminate ---------------------------------------------
 
 describe("liveness", () => {
-  it("a baseline bot game terminates with a winner or draw", () => {
-    const r = runGame(BASELINE_POLICIES, { turnCap: 5000 });
+  it("a random-bot game terminates with a winner or draw", async () => {
+    const r = await runGameRandom();
     expect(r.winner).not.toBeNull();
     expect(r.turns).toBeGreaterThan(0);
   });
 
-  it("10 games all terminate", () => {
+  it("10 random-bot games all terminate", async () => {
     for (let i = 0; i < 10; i++) {
-      const r = runGame(BASELINE_POLICIES, { turnCap: 5000 });
+      const r = await runGameRandom();
       expect(r.winner).not.toBeNull();
     }
   });
