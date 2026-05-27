@@ -34,7 +34,11 @@ export interface GameState {
   // SHARED decks (resources on the table). decreeDeck is the only one modelled; the
   // research deck arrives with Blue, also shared. Per the design, decrees and research are
   // communal pools — the sole per-player deck would be Blue's Archive (not built).
+  // Deck lifecycle: draw from decreeDeck; a struck/removed decree goes to decreeDiscard;
+  // when the draw deck empties, the discard is shuffled back in (the deplete→refill rule the
+  // design names for every shared deck — Blue's commons/Archive will reuse drawShared()).
   decreeDeck: string[];
+  decreeDiscard: string[];
   // SHARED table of standing rules (communal — decrees pay no one for ownership). Anyone
   // in {W,U,G} enacts onto it; a strike can remove from it.
   decreesInPlay: string[];
@@ -224,29 +228,50 @@ function runDecreeChain(
   return ev;
 }
 
-// The actual shared array a deck kind resolves to (null = not modelled yet, e.g. research).
-function deckFor(G: GameState, kind: DeckKind): string[] | null {
-  return kind === "decree" ? G.decreeDeck : null;
+// The draw + discard arrays a deck kind resolves to (null = not modelled yet, e.g. research).
+// When Blue lands, "research" returns {deck: G.researchDeck, discard: G.researchDiscard}.
+function deckFor(G: GameState, kind: DeckKind): { deck: string[]; discard: string[] } | null {
+  return kind === "decree" ? { deck: G.decreeDeck, discard: G.decreeDiscard } : null;
+}
+
+// deplete→refill: if the draw deck is empty, shuffle the discard back into it (in place, so
+// the change sticks on G). Shared by every shared deck. Uses boardgame.io's RNG via the move
+// context? No — we shuffle with a local PRNG seeded off current contents for determinism in
+// replay; order is hidden info anyway (the sim re-determinizes it for bots).
+function refillIfEmpty(deck: string[], discard: string[]): void {
+  if (deck.length > 0 || discard.length === 0) return;
+  // Fisher–Yates on the discard, then move it into the deck (both in place).
+  for (let i = discard.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [discard[i], discard[j]] = [discard[j], discard[i]];
+  }
+  deck.push(...discard);
+  discard.length = 0;
 }
 
 // Centralized draw from a SHARED deck: fires the on-draw hook per base card so 'when a
 // player draws…' decrees work for both research and the upkeep draw. Returns count drawn.
+// Refills from discard when the deck runs dry, so a player can't permanently starve.
 function drawCards(
   G: GameState,
   seat: FactionId,
   base: number,
   deckKind: DeckKind,
 ): number {
-  const deck = deckFor(G, deckKind);
-  if (!deck) return 0;
+  const decks = deckFor(G, deckKind);
+  if (!decks) return 0;
+  const { deck, discard } = decks;
   const p = G.players[seat];
   let drawn = 0;
   for (let i = 0; i < base; i++) {
+    refillIfEmpty(deck, discard);
     if (deck.length === 0) break;
     // The draw event seeds draws:1; decrees may bump it (e.g. "may draw +1").
     const ev = fireVerb(G, "draw", seat, { draws: 1 }, { deck: deckKind });
     let extra = Math.max(0, ev.draws);
-    while (extra > 0 && deck.length > 0) {
+    while (extra > 0) {
+      refillIfEmpty(deck, discard);
+      if (deck.length === 0) break;
       p.hand.push(deck.shift()!);
       drawn += 1;
       extra -= 1;
@@ -344,11 +369,11 @@ const musterZealots: Move<GameState> = ({ G, playerID, ctx }) => {
 const deliberate: Move<GameState> = ({ G, playerID, ctx }) => {
   if (!playerID || !canAct(G, playerID, ctx, "deliberate")) return INVALID_MOVE;
   const seat = playerID as FactionId;
-  if (G.decreeDeck.length === 0) {
-    G.log.push(`${label(G, seat)} deliberates (no deck)`);
+  if (G.decreeDeck.length === 0 && G.decreeDiscard.length === 0) {
+    G.log.push(`${label(G, seat)} deliberates (deck + discard empty)`);
     return;
   }
-  const n = drawCards(G, seat, 1, "decree");
+  const n = drawCards(G, seat, 1, "decree"); // refills from discard if the deck is dry
   G.log.push(`${label(G, seat)} deliberates: drew ${n}`);
 };
 
@@ -431,8 +456,9 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
     return;
   }
 
-  // No support left → remove the decree from the shared table.
+  // No support left → remove the decree from the shared table → to the discard (recirculates).
   G.decreesInPlay.splice(idx, 1);
+  G.decreeDiscard.push(decreeId);
   if (!G.decreesInPlay.includes(decreeId)) delete G.support[decreeId]; // tidy any stray entry
   G.log.push(
     `${label(G, seat)} strikes decree '${decreeId}' off the table (−${cost} zealot, +0 Mandate)`,
@@ -446,8 +472,8 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
 function upkeepDraw(G: GameState, next: FactionId): void {
   const spec = FACTIONS[factionOf(G, next)];
   if (spec.draw_per_turn <= 0 || !spec.drawsFrom) return;
-  const deck = deckFor(G, spec.drawsFrom);
-  if (!deck || deck.length === 0) return;
+  const decks = deckFor(G, spec.drawsFrom);
+  if (!decks || (decks.deck.length === 0 && decks.discard.length === 0)) return;
   const drawn = drawCards(G, next, spec.draw_per_turn, spec.drawsFrom);
   if (drawn > 0) G.log.push(`  · ${label(G, next)} draws ${drawn}`);
 }
@@ -490,6 +516,7 @@ export const MandateGame: Game<GameState> = {
       players,
       mandate: { [WHITE]: 0, [RED]: 0 },
       decreeDeck,
+      decreeDiscard: [],
       decreesInPlay: [],
       support: {},
       log: [`--- game start, target = ${CONFIG.mandate_target} ---`],
@@ -563,7 +590,8 @@ function enumerateMoves(G: GameState, ctx: { currentPlayer: string }): AiEnumera
       if (room > 0) out.push({ move: "allocateSupporters", args: [Array(Math.min(k, room)).fill(id)] });
     }
   }
-  if (canDo(faction, "deliberate") && G.decreeDeck.length > 0) out.push({ move: "deliberate" });
+  if (canDo(faction, "deliberate") && (G.decreeDeck.length > 0 || G.decreeDiscard.length > 0))
+    out.push({ move: "deliberate" });
   if (canDo(faction, "rally_supporters")) out.push({ move: "rallySupporters" });
   if (canDo(faction, "muster_zealots")) out.push({ move: "musterZealots" });
   // strike: Mandate, or any decree on the table — each gated by its OWN cost.

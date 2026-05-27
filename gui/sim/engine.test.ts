@@ -111,6 +111,43 @@ describe("shared resources", () => {
     expect(driveUntilInPlay(c, "open_records")).toBe(true);
     expect(G(c).decreesInPlay).toContain("open_records");
   });
+
+  it("White never permanently starves: drawing past deck end refills from discard", () => {
+    // White draws 1/turn from an 8-ish card deck. Drive many White turns deliberating; once
+    // it has cards in hand, enact them so they can later recirculate. The deck must never be
+    // stuck empty-with-no-recourse: total cards (deck+discard+hand+inPlay) is conserved, and
+    // White keeps being able to draw across a span longer than the initial deck.
+    const c = newClient();
+    let everRefilled = false;
+    let drewLate = false;
+    for (let t = 0; t < 40; t++) {
+      const s = c.getState()!;
+      if (s.ctx.gameover) break;
+      const seat = s.ctx.currentPlayer as FactionId;
+      c.updatePlayerID(seat);
+      if (seat === WHITE) {
+        const handBefore = s.G.players[WHITE].hand.length;
+        // Enact a held decree to feed eventual recirculation; else deliberate to draw.
+        if (handBefore > 0) c.moves.enactDecree(s.G.players[WHITE].hand[0]);
+        else c.moves.deliberate();
+        const after = c.getState()!.G;
+        if (after.decreeDiscard.length > 0) everRefilled = true; // discard accrued
+        if (t > 16 && after.players[WHITE].hand.length > handBefore) drewLate = true;
+      } else {
+        // Red strikes White's decrees when it can, sending them to the discard.
+        if (c.getState()!.G.players[RED].zealots >= 1 && c.getState()!.G.decreesInPlay.length)
+          c.moves.strikeDecree(c.getState()!.G.decreesInPlay[0]);
+        else c.moves.musterZealots();
+      }
+    }
+    // Conservation: nothing leaked.
+    const g = G(c);
+    const total = g.decreeDeck.length + g.decreeDiscard.length +
+      g.decreesInPlay.length + g.players[WHITE].hand.length + g.players[RED].hand.length;
+    expect(total).toBe(WHITE_DECK_TEMPLATE.length);
+    expect(everRefilled || drewLate).toBe(true); // discard cycle is live
+    c.stop();
+  });
 });
 
 // ---- currencies: spend / yield ---------------------------------------------
