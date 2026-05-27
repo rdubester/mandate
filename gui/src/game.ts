@@ -4,23 +4,26 @@ import {
   CONFIG,
   FACTIONS,
   DECREES,
-  WHITE,
-  RED,
   WHITE_DECK_TEMPLATE,
+  DEFAULT_MATCHUP,
+  SEATS,
   canDo,
   verbsFor,
   type FactionId,
+  type SeatId,
+  type Matchup,
   type DeckKind,
   type Op,
 } from "./config";
 
 // G — the shared game state. boardgame.io uses immer; mutate in place.
 
-// A seat at the table. Keyed in G.players by boardgame.io's playerID ("0", "1", …).
-// `faction` is which faction this seat plays. Today seat-id === faction-id, so the field
-// is redundant — but reading `faction` (never the key) is exactly what makes a White-vs-
-// White game a one-line change later: give two seats faction = WHITE. Decks live on G
-// (shared), not here — the only per-player deck in the design is Blue's Archive, unbuilt.
+// A seat at the table. Keyed in G.players by boardgame.io's playerID / SeatId ("0", "1", …).
+// `faction` is which faction this seat plays. Seat id and faction id are DISTINCT concepts:
+// the key is a table position, `faction` is the colour-character it plays. Read `faction`
+// (never the key) for any colour logic — that is what makes White-vs-White a setup choice
+// (give both seats faction = WHITE) instead of an engine rewrite. Decks live on G (shared),
+// not here — the only per-player deck in the design is Blue's Archive, unbuilt.
 export interface PlayerState {
   faction: FactionId;
   hand: string[];
@@ -29,8 +32,8 @@ export interface PlayerState {
 }
 
 export interface GameState {
-  players: Record<FactionId, PlayerState>; // keyed by seat id (=== faction id for now)
-  mandate: Record<FactionId, number>; // each seat's score on the shared track
+  players: Record<SeatId, PlayerState>; // keyed by SEAT id (a table position)
+  mandate: Record<SeatId, number>; // each seat's score on the shared track
   // SHARED decks (resources on the table). decreeDeck is the only one modelled; the
   // research deck arrives with Blue, also shared. Per the design, decrees and research are
   // communal pools — the sole per-player deck would be Blue's Archive (not built).
@@ -42,12 +45,12 @@ export interface GameState {
   // SHARED table of standing rules (communal — decrees pay no one for ownership). Anyone
   // in {W,U,G} enacts onto it; a strike can remove from it.
   decreesInPlay: string[];
-  // support[decreeId][seat] = how many supporters that seat has placed on the decree.
+  // support[decreeId][seat] = how many supporters that SEAT has placed on the decree.
   // A decree BITES for EVERY seat with ≥1 supporter on it (flat each, not proportional —
   // White isn't populism; more base = more entrenched, not more points). Support also
   // DEFENDS: a Red strike strips supporters before the decree can be removed. (Markers +
   // shields collapsed into this one concept.)
-  support: Record<string, Partial<Record<FactionId, number>>>;
+  support: Record<string, Partial<Record<SeatId, number>>>;
   log: string[];
 }
 
@@ -63,20 +66,22 @@ function emptyPlayer(faction: FactionId): PlayerState {
   };
 }
 
-// 2-player only: "the opponent" is well-defined here, but knockback would need an explicit
-// target once a third seat exists.
-function opponentOf(p: FactionId): FactionId {
-  return p === WHITE ? RED : WHITE;
+// 2-player only: "the opponent" is the OTHER SEAT — defined on seats, independent of faction
+// (so it works in a mirror). Knockback would need an explicit target once a third seat exists.
+function opponentOf(seat: SeatId): SeatId {
+  return seat === "0" ? "1" : "0";
 }
 
 // The faction a seat is playing (the indirection that keeps identity out of the engine).
 function factionOf(G: GameState, seat: string): FactionId {
-  return G.players[seat as FactionId].faction;
+  return G.players[seat as SeatId].faction;
 }
 
-// Short log label for a seat ("white" / "red"), derived from its faction's name.
+// Short log label for a seat ("white" / "red"), derived from its faction's name. When two
+// seats share a faction (a mirror) the seat id disambiguates the two same-coloured players.
 function label(G: GameState, seat: string): string {
-  return FACTIONS[factionOf(G, seat)].name.split(" ")[0].toLowerCase();
+  const name = FACTIONS[factionOf(G, seat)].name.split(" ")[0].toLowerCase();
+  return `${name}#${seat}`;
 }
 
 // Total supporters on a decree, summed across all seats. Exported for the UI / bots.
@@ -84,7 +89,7 @@ export function supportOn(G: GameState, id: string): number {
   const owners = G.support[id];
   if (!owners) return 0;
   let t = 0;
-  for (const seat of Object.keys(owners)) t += owners[seat as FactionId] ?? 0;
+  for (const seat of Object.keys(owners)) t += owners[seat as SeatId] ?? 0;
   return t;
 }
 
@@ -166,7 +171,7 @@ function freshEvent(
 function fireVerb(
   G: GameState,
   verb: string,
-  seat: FactionId,
+  seat: SeatId,
   base: Partial<VerbEvent> = {},
   detail: Record<string, string> = {},
 ): VerbEvent {
@@ -181,7 +186,8 @@ function previewVerb(
   base: Partial<VerbEvent> = {},
   detail: Record<string, string> = {},
 ): VerbEvent {
-  return runDecreeChain(G, freshEvent(verb, base, detail), WHITE, false);
+  // Seat is irrelevant in preview (scoring=false → no payouts, no log); pass the first seat.
+  return runDecreeChain(G, freshEvent(verb, base, detail), SEATS[0], false);
 }
 
 // Pass the event through every in-play decree that matches its verb/detail. Each decree may
@@ -191,7 +197,7 @@ function previewVerb(
 function runDecreeChain(
   G: GameState,
   ev: VerbEvent,
-  seat: FactionId,
+  seat: SeatId,
   scoring: boolean,
 ): VerbEvent {
   for (const id of G.decreesInPlay) {
@@ -216,7 +222,7 @@ function runDecreeChain(
     // not score). Decoupled: whoever plays the decree, whoever supports it scores off it.
     const owners = G.support[id];
     if (!owners) continue;
-    for (const owner of Object.keys(owners) as FactionId[]) {
+    for (const owner of Object.keys(owners) as SeatId[]) {
       if ((owners[owner] ?? 0) <= 0) continue;
       G.mandate[owner] += amount;
       G.log.push(
@@ -254,7 +260,7 @@ function refillIfEmpty(deck: string[], discard: string[]): void {
 // Refills from discard when the deck runs dry, so a player can't permanently starve.
 function drawCards(
   G: GameState,
-  seat: FactionId,
+  seat: SeatId,
   base: number,
   deckKind: DeckKind,
 ): number {
@@ -303,7 +309,7 @@ function canAct(G: GameState, seat: string, ctx: { currentPlayer: string }, verb
 
 const enactDecree: Move<GameState> = ({ G, playerID, ctx }, cardId: string) => {
   if (!playerID || !canAct(G, playerID, ctx, "enact_decree")) return INVALID_MOVE;
-  const p = G.players[playerID as FactionId];
+  const p = G.players[playerID as SeatId];
   const idx = p.hand.indexOf(cardId);
   if (idx === -1) return INVALID_MOVE;
   p.hand.splice(idx, 1);
@@ -318,7 +324,7 @@ const enactDecree: Move<GameState> = ({ G, playerID, ctx }, cardId: string) => {
 // available stock; invalid targets skipped; a no-op allocation is rejected.
 const allocateSupporters: Move<GameState> = ({ G, playerID, ctx }, placements: string[]) => {
   if (!playerID || !canAct(G, playerID, ctx, "allocate_supporters")) return INVALID_MOVE;
-  const seat = playerID as FactionId;
+  const seat = playerID as SeatId;
   const p = G.players[seat];
   // K is seeded then run through the decree chain, so "a decree that lets White support +1"
   // is just a data row: effect [{op:'add', path:'allocK', n:1}] on trigger allocate_supporters.
@@ -343,7 +349,7 @@ const allocateSupporters: Move<GameState> = ({ G, playerID, ctx }, placements: s
 
 function growUnits(
   G: GameState,
-  seat: FactionId,
+  seat: SeatId,
   verb: "rally_supporters" | "muster_zealots",
   unit: "supporters" | "zealots",
 ): void {
@@ -355,12 +361,12 @@ function growUnits(
 
 const rallySupporters: Move<GameState> = ({ G, playerID, ctx }) => {
   if (!playerID || !canAct(G, playerID, ctx, "rally_supporters")) return INVALID_MOVE;
-  growUnits(G, playerID as FactionId, "rally_supporters", "supporters");
+  growUnits(G, playerID as SeatId, "rally_supporters", "supporters");
 };
 
 const musterZealots: Move<GameState> = ({ G, playerID, ctx }) => {
   if (!playerID || !canAct(G, playerID, ctx, "muster_zealots")) return INVALID_MOVE;
-  growUnits(G, playerID as FactionId, "muster_zealots", "zealots");
+  growUnits(G, playerID as SeatId, "muster_zealots", "zealots");
 };
 
 // White draws from the shared decree deck. Named 'deliberate' (vs 'research') because for
@@ -368,7 +374,7 @@ const musterZealots: Move<GameState> = ({ G, playerID, ctx }) => {
 // likely becomes a shared W–U verb; reskin then.
 const deliberate: Move<GameState> = ({ G, playerID, ctx }) => {
   if (!playerID || !canAct(G, playerID, ctx, "deliberate")) return INVALID_MOVE;
-  const seat = playerID as FactionId;
+  const seat = playerID as SeatId;
   if (G.decreeDeck.length === 0 && G.decreeDiscard.length === 0) {
     G.log.push(`${label(G, seat)} deliberates (deck + discard empty)`);
     return;
@@ -379,7 +385,7 @@ const deliberate: Move<GameState> = ({ G, playerID, ctx }) => {
 
 const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
   if (!playerID || !canAct(G, playerID, ctx, "strike")) return INVALID_MOVE;
-  const seat = playerID as FactionId;
+  const seat = playerID as SeatId;
   const opp = opponentOf(seat);
   const sc = CONFIG.scoring.strike_landed;
   // A Mandate-strike is PURE SCORING — Red advances its own clock, it does NOT delete the
@@ -413,7 +419,7 @@ const strikeMandate: Move<GameState> = ({ G, playerID, ctx }) => {
 // racing the Mandate track — that is how decrees slow Red, not how Red scores.
 const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) => {
   if (!playerID || !canAct(G, playerID, ctx, "strike")) return INVALID_MOVE;
-  const seat = playerID as FactionId;
+  const seat = playerID as SeatId;
   const sc = CONFIG.scoring.strike_landed;
   // Seed cost + base supportStrip (1); decrees may adjust either via ops.
   const ev = fireVerb(
@@ -439,7 +445,7 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
   if (owners && total > 0) {
     let toStrip = Math.max(0, ev.supportStrip);
     let removed = 0;
-    for (const s of Object.keys(owners) as FactionId[]) {
+    for (const s of Object.keys(owners) as SeatId[]) {
       if (toStrip <= 0) break;
       const have = owners[s] ?? 0;
       const take = Math.min(have, toStrip);
@@ -469,7 +475,7 @@ const strikeDecree: Move<GameState> = ({ G, playerID, ctx }, decreeId: string) =
 
 // Upkeep draw routes through the hook-aware draw so 'when a player draws' decrees fire on
 // the upkeep draw too. Draws from whichever SHARED deck the faction reads (drawsFrom).
-function upkeepDraw(G: GameState, next: FactionId): void {
+function upkeepDraw(G: GameState, next: SeatId): void {
   const spec = FACTIONS[factionOf(G, next)];
   if (spec.draw_per_turn <= 0 || !spec.drawsFrom) return;
   const decks = deckFor(G, spec.drawsFrom);
@@ -495,18 +501,29 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
 export const MandateGame: Game<GameState> = {
   name: "the-mandate",
 
-  setup: ({ random }) => {
+  // setupData carries the matchup (which faction each SEAT plays). boardgame.io's
+  // InitializeGame path (used by the sim) forwards setupData here. NOTE: the local
+  // client (`Client` / the `Step` debug path) does NOT forward setupData to setup — so the
+  // hotseat GUI always gets the DEFAULT matchup. Mirrors are exercised via the sim, which
+  // does pass setupData. The plumbing below is correct for any caller that supplies it.
+  setup: ({ random }, setupData?: { matchup?: Matchup }) => {
     const seed = random ? Math.floor(random.Number() * 1e9) : 12345;
     const decreeDeck = seededShuffle(WHITE_DECK_TEMPLATE, seed);
 
-    const players = {
-      [WHITE]: emptyPlayer(WHITE),
-      [RED]: emptyPlayer(RED),
-    } as Record<FactionId, PlayerState>;
+    const matchup: Matchup = setupData?.matchup ?? DEFAULT_MATCHUP;
 
-    // Deal each faction's opening hand off the SHARED deck it reads.
-    for (const seat of [WHITE, RED] as FactionId[]) {
-      const spec = FACTIONS[seat];
+    // Each seat's starting state (faction, hand size, supporters/zealots, drawsFrom) comes
+    // from FACTIONS[matchup[seat]] — never from the seat id itself.
+    const players = {} as Record<SeatId, PlayerState>;
+    const mandate = {} as Record<SeatId, number>;
+    for (const seat of SEATS) {
+      players[seat] = emptyPlayer(matchup[seat]);
+      mandate[seat] = 0;
+    }
+
+    // Deal each seat's opening hand off the SHARED deck the seat's faction reads.
+    for (const seat of SEATS) {
+      const spec = FACTIONS[matchup[seat]];
       if (spec.starting_hand > 0 && spec.drawsFrom === "decree") {
         players[seat].hand = decreeDeck.splice(0, spec.starting_hand);
       }
@@ -514,7 +531,7 @@ export const MandateGame: Game<GameState> = {
 
     return {
       players,
-      mandate: { [WHITE]: 0, [RED]: 0 },
+      mandate,
       decreeDeck,
       decreeDiscard: [],
       decreesInPlay: [],
@@ -529,7 +546,7 @@ export const MandateGame: Game<GameState> = {
     onEnd: ({ G, ctx }) => {
       // No decree-scoring pass here — decrees score live, via the verb hooks, when players
       // act under the rules. End of turn just draws for the next seat and hands off.
-      const next = opponentOf(ctx.currentPlayer as FactionId);
+      const next = opponentOf(ctx.currentPlayer as SeatId);
       upkeepDraw(G, next);
       G.log.push(`--- turn ${ctx.turn + 1}, ${label(G, next)} to act ---`);
     },
@@ -545,19 +562,22 @@ export const MandateGame: Game<GameState> = {
     strikeDecree,
   },
 
+  // First past the post on the shared track — decided on SEATS (winner is a seat id), so a
+  // mirror (both seats same faction) resolves correctly. [a, b] are the two seats' scores.
   endIf: ({ G, ctx }) => {
     const target = CONFIG.mandate_target;
-    const w = G.mandate[WHITE];
-    const r = G.mandate[RED];
-    if (w >= target && r >= target) {
-      if (w === r) return { winner: ctx.currentPlayer };
-      return { winner: w > r ? WHITE : RED };
+    const [a, b] = SEATS;
+    const sa = G.mandate[a];
+    const sb = G.mandate[b];
+    if (sa >= target && sb >= target) {
+      if (sa === sb) return { winner: ctx.currentPlayer };
+      return { winner: sa > sb ? a : b };
     }
-    if (w >= target) return { winner: WHITE };
-    if (r >= target) return { winner: RED };
+    if (sa >= target) return { winner: a };
+    if (sb >= target) return { winner: b };
     if (ctx.turn >= CONFIG.max_turns) {
-      if (w === r) return { draw: true };
-      return { winner: w > r ? WHITE : RED };
+      if (sa === sb) return { draw: true };
+      return { winner: sa > sb ? a : b };
     }
   },
 
@@ -572,7 +592,7 @@ export const MandateGame: Game<GameState> = {
 
 function enumerateMoves(G: GameState, ctx: { currentPlayer: string }): AiEnumerate {
   const out: AiEnumerate = [];
-  const seat = ctx.currentPlayer as FactionId;
+  const seat = ctx.currentPlayer as SeatId;
   const faction = factionOf(G, seat);
   const p = G.players[seat];
 

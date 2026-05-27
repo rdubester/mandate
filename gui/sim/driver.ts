@@ -15,12 +15,12 @@
 import type { Ctx } from "boardgame.io";
 import { MandateGame } from "../src/game";
 import type { GameState } from "../src/game";
-import { WHITE, RED, type FactionId } from "../src/config";
+import { SEATS, type SeatId, type Matchup } from "../src/config";
 
 export interface GameResult {
-  winner: FactionId | "draw" | null;
+  winner: SeatId | "draw" | null; // the winning SEAT (a table position), not a faction
   turns: number;
-  mandate: Record<FactionId, number>;
+  mandate: Record<SeatId, number>;
   log: string[];
 }
 
@@ -71,13 +71,23 @@ function createMiniStore(initial: MiniState, reducer: (s: MiniState, a: { type: 
   };
 }
 
-// Drive a game to completion with one bot per seat. `bots` is keyed by seat id.
-async function runWithBots(bots: Record<string, { play: Function }>): Promise<GameResult> {
+// Drive a game to completion with one bot per seat. `bots` is keyed by seat id. `matchup`
+// (which faction each seat plays) is forwarded to setup via setupData — the InitializeGame
+// path DOES forward it (unlike the local Client), so this is where mirrors get configured.
+async function runWithBots(
+  bots: Record<string, { play: Function }>,
+  matchup?: Matchup,
+): Promise<GameResult> {
   const { Step } = await import("boardgame.io/ai");
   const { InitializeGame, CreateGameReducer } = await import("boardgame.io/internal");
 
   const reducer = CreateGameReducer({ game: MandateGame }) as unknown as (s: MiniState, a: { type: string }) => MiniState;
-  const store = createMiniStore(InitializeGame({ game: MandateGame, numPlayers: 2 }) as unknown as MiniState, reducer);
+  const initial = InitializeGame({
+    game: MandateGame,
+    numPlayers: 2,
+    setupData: matchup ? { matchup } : undefined,
+  }) as unknown as MiniState;
+  const store = createMiniStore(initial, reducer);
   const client = { store };
 
   for (let guard = 0; guard < 5000; guard++) {
@@ -90,31 +100,36 @@ async function runWithBots(bots: Record<string, { play: Function }>): Promise<Ga
   const final = store.getState();
   const over = final.ctx.gameover;
   const G = final.G;
+  const mandate = {} as Record<SeatId, number>;
+  for (const seat of SEATS) mandate[seat] = G.mandate[seat];
   return {
-    winner: over ? (over.draw ? "draw" : (over.winner as FactionId)) : null,
+    winner: over ? (over.draw ? "draw" : (over.winner as SeatId)) : null,
     turns: final.ctx.turn,
-    mandate: { [WHITE]: G.mandate[WHITE], [RED]: G.mandate[RED] } as Record<FactionId, number>,
+    mandate,
     log: G.log,
   };
 }
 
 // ---- RandomBot games (fast: liveness + quick distribution reads) -----------
 
-export async function runGameRandom(opts: { seed?: number } = {}): Promise<GameResult> {
+export async function runGameRandom(
+  opts: { seed?: number; matchup?: Matchup } = {},
+): Promise<GameResult> {
   const { RandomBot } = await import("boardgame.io/ai");
   const enumerate = MandateGame.ai!.enumerate;
   const seed = opts.seed;
+  const [a, b] = SEATS;
   const bots = {
-    [WHITE]: new RandomBot({ enumerate, seed: seed === undefined ? undefined : String(seed) }),
-    [RED]: new RandomBot({ enumerate, seed: seed === undefined ? undefined : String(seed + 1) }),
+    [a]: new RandomBot({ enumerate, seed: seed === undefined ? undefined : String(seed) }),
+    [b]: new RandomBot({ enumerate, seed: seed === undefined ? undefined : String(seed + 1) }),
   } as Record<string, { play: Function }>;
-  return runWithBots(bots);
+  return runWithBots(bots, opts.matchup);
 }
 
 // ---- MCTS games (slow: trustworthy balance reads) --------------------------
 
 export async function runGameMCTS(
-  opts: { iterations?: number; playoutDepth?: number; seed?: number } = {},
+  opts: { iterations?: number; playoutDepth?: number; seed?: number; matchup?: Matchup } = {},
 ): Promise<GameResult> {
   const { MCTSBot } = await import("boardgame.io/ai");
   const enumerate = MandateGame.ai!.enumerate;
@@ -130,6 +145,7 @@ export async function runGameMCTS(
     }
   }
   const makeBot = () => new DeterminizingBot({ game: MandateGame, enumerate, iterations, playoutDepth });
-  const bots = { [WHITE]: makeBot(), [RED]: makeBot() } as Record<string, { play: Function }>;
-  return runWithBots(bots);
+  const [a, b] = SEATS;
+  const bots = { [a]: makeBot(), [b]: makeBot() } as Record<string, { play: Function }>;
+  return runWithBots(bots, opts.matchup);
 }

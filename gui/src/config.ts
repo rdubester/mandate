@@ -14,7 +14,21 @@
 
 export const WHITE = "0";
 export const RED = "1";
+
+// Two semantically distinct types that happen to share string values today:
+//   · FactionId — the KEY into FACTIONS/COLOUR: which colour-character is being played.
+//     WHITE/RED are FactionIds. Only colour logic (canDo / COLOUR / FACTIONS) takes these.
+//   · SeatId    — a boardgame.io playerID ("0", "1", …): a POSITION at the table. Keys
+//     G.players / G.mandate / G.support[id]. A seat plays SOME faction (PlayerState.faction);
+//     the engine derives the faction from the seat via factionOf(G, seat), never assumes
+//     seat === faction. Keeping them separate is what lets a seat play ANY faction (mirrors).
 export type FactionId = typeof WHITE | typeof RED;
+export type SeatId = "0" | "1";
+
+// A matchup assigns each seat the faction it plays. Default is the historical White-vs-Red.
+export type Matchup = Record<SeatId, FactionId>;
+export const SEATS: SeatId[] = ["0", "1"];
+export const DEFAULT_MATCHUP: Matchup = { "0": WHITE, "1": RED };
 
 export type Colour = "W" | "U" | "B" | "R" | "G";
 
