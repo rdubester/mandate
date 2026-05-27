@@ -12,7 +12,6 @@ import {
   CHARACTERS,
   WHITE_DECK_TEMPLATE,
   verbsFor,
-  shardOf,
   type Decree,
   type VerbSpec,
   type Op,
@@ -140,7 +139,6 @@ export function Rulebook() {
                   <span className="rb-muted">{c.character}</span>
                 </div>
                 <Field k="colour" v={c.colour} />
-                <Field k="shard (emergent)" v={shardOf(c.id).join(" ")} />
                 <Field k="scoring" v={c.scoring} />
                 <Field k="verbs" v={verbsFor(c.id).join(", ")} />
                 <Field k="start" v={`hand ${cfg.starting_hand} · supporters ${cfg.starting_supporters} · zealots ${cfg.starting_zealots}`} />

@@ -16,7 +16,6 @@ import {
   WHITE,
   RED,
   canDo,
-  shardOf,
   type FactionId,
 } from "../src/config";
 import { runGame, BASELINE_POLICIES } from "./driver";
@@ -51,24 +50,25 @@ describe("availability: character is one colour, verb iff colour ∈ tags", () =
     expect(canDo(WHITE, "muster_zealots")).toBe(false);
   });
 
-  it("Red can strike + muster_zealots, but not enact_decree/deliberate/rally", () => {
+  it("Red can strike, muster, and rally (G-home primitive), but not enact/deliberate", () => {
     expect(canDo(RED, "strike")).toBe(true);
     expect(canDo(RED, "muster_zealots")).toBe(true);
+    // rally_supporters is the G-home primitive {G,R,W} — Red reaches it (it has no
+    // supporter sink yet, but access is structural, not behavioural).
+    expect(canDo(RED, "rally_supporters")).toBe(true);
     expect(canDo(RED, "enact_decree")).toBe(false);
     expect(canDo(RED, "deliberate")).toBe(false);
-    expect(canDo(RED, "rally_supporters")).toBe(false);
   });
 
-  it("emergent shards reflect the verb tags: White WUG, Red RG", () => {
-    // White reaches enact_decree{W,U,G}, so U lights up in its footprint even though
-    // no U-character is built — the shard is purely a consequence of the verb tags.
-    expect(new Set(shardOf(WHITE))).toEqual(new Set(["W", "U", "G"]));
-    expect(new Set(shardOf(RED))).toEqual(new Set(["R", "G"]));
+  it("verbs are signatures (1 colour) or primitives (3 adjacent colours); never 2-colour", () => {
+    for (const v of VERBS) {
+      expect([1, 3]).toContain(v.colours.length);
+    }
   });
 
   it("Green (hypothetical G) would make BOTH currencies", () => {
-    // G sits on both rally_supporters{W,G} and muster_zealots{R,G}, so a green
-    // character reaches both — the dual-natured spring, straight from the tags.
+    // G is in both rally_supporters {G,R,W} and muster_zealots {R,B,G}, so a green
+    // character reaches both unit primitives — straight from the tags.
     const greenReaches = VERBS.filter((v) => v.colours.includes("G")).map((v) => v.name);
     expect(greenReaches).toContain("rally_supporters");
     expect(greenReaches).toContain("muster_zealots");

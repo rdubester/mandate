@@ -2,13 +2,15 @@
 //   A character IS ONE COLOUR. A verb is tagged with one or more colours. A character
 //   can do a verb iff its colour is among the verb's colours. The shard / wing /
 //   signature structure is NOT declared — it EMERGES from how verbs are tagged, and
-//   the tags follow the wheel's adjacency (W–U–B–R–G):
-//     · a verb tagged with ONE colour is reachable by exactly one character — that is
-//       what "signature" means (e.g. allocate_supporters {W} → only White; strike {R} → Red).
-//     · a verb tagged with TWO ADJACENT colours is a wing/edge verb shared by both
-//       neighbours (e.g. rally_supporters {W,G} → White and Green).
-//   A character's "shard" is just the set of colours appearing across the verbs it can
-//   reach — it comes out as centre + two wings for free.
+//   the tags follow the wheel's adjacency (W–U–B–R–G). Verbs come in exactly two shapes:
+//     · SIGNATURE — tagged with ONE colour, reachable by exactly one character
+//       (e.g. allocate_supporters {W} → only White; strike {R} → only Red).
+//     · PRIMITIVE — tagged with THREE ADJACENT colours: a HOME colour plus its two wheel
+//       neighbours (i.e. the shard centred on the home + the two shards holding it as a
+//       wing). e.g. enact_decree home W → {G,W,U}; rally_supporters home G → {R,G,W}.
+//   There are never 2-colour verbs, and the vocabulary is capped at 10 (5 primitives +
+//   5 signatures). "Shard" / "wing" / "home" are design-doc vocabulary only — the engine
+//   knows nothing but colours-on-verbs and the membership check (canDo).
 
 export const WHITE = "0";
 export const RED = "1";
@@ -80,10 +82,12 @@ export const CONFIG = {
   actions_per_turn: 2,
   max_turns: 200,
 
-  // Two currencies, one per green edge (see unit-economy-edges):
-  //   supporters = G–W community (soft STOCK, White's edict fuel)
-  //   zealots    = G–R authenticity (hard FLOW, spent on direct actions)
-  // No soldiers. White (GWU) has no R, so it can NEVER muster zealots.
+  // Two currencies, one per unit-minting primitive:
+  //   supporters = community (soft STOCK) — minted by the G-home rally_supporters {R,G,W}
+  //   zealots    = authenticity (hard FLOW, spent on direct actions) — minted by the
+  //                R-home muster_zealots {B,R,G}
+  // No soldiers. White (W) is not in muster's tags, so it can NEVER muster zealots;
+  // Blue (U) is in neither, so it never touches units at all.
   unit_yield: {
     rally_supporters: 1,
     muster_zealots: 2,
@@ -112,10 +116,12 @@ export const CONFIG = {
 };
 
 // ---- the verb table: the single source of who-can-do-what --------------------
-// Each verb's `colours` are its wheel tags. A character (one colour) can do a verb
-// iff its colour is in the verb's `colours`. One-colour verbs are de-facto signatures;
-// two-adjacent-colour verbs are shared wing/edge verbs. The effect fields below are
-// exactly what the engine (game.ts) mutates.
+// Each verb's `colours` are its wheel tags. A character (one colour) can do a verb iff
+// its colour is in `colours`. Signatures are 1-colour; primitives are 3 adjacent colours
+// (a home colour + its two wheel neighbours). The full vocabulary is at most 10 verbs
+// (5 primitives + 5 signatures); the B-home market/convert primitive and the U/B/G
+// signatures arrive with later factions. The effect fields below are exactly what the
+// engine (game.ts) mutates.
 
 export interface VerbSpec {
   name: string;
@@ -132,16 +138,19 @@ export const VERBS: VerbSpec[] = [
   // SUPPORT. A supported decree (≥1) scores its supporter(s) when it bites AND is defended
   // (support absorbs Red strikes). One action distributes K — "K placements in a trenchcoat".
   { name: "allocate_supporters", colours: ["W"], allocates: true },
-  // Enact a decree (install a standing table rule). SHARED across the governance trio
-  // {W,U,G}: White backs platforms, Blue plays tempo bets, Green stabilises the board.
-  // Red (R) cannot enact — only strike decrees away. Decrees land on the SHARED table.
+  // The W-home PRIMITIVE: enact a decree (install a standing table rule) onto the SHARED
+  // table. Reachable by the governance trio {G,W,U}: White backs platforms, Blue plays
+  // tempo bets, Green stabilises the board. Red/Black cannot enact — only strike/trade.
   { name: "enact_decree", colours: ["W", "U", "G"] },
-  // White draws from the shared decree deck. {W} only for now — when Blue arrives this
-  // likely becomes a shared W–U "research" verb (digs both decks); reskin then.
+  // The U-home PRIMITIVE in embryo: draw from a shared deck you can read (decree deck for
+  // now — the research commons doesn't exist yet). Will widen to {W,U,B} and reskin as
+  // "research" when Blue lands; W-only today because W is the only built colour in its tags.
   { name: "deliberate", colours: ["W"], draws: 1 },
-  // W–G community edge: shared by White and (later) Green. Grows the soft stock.
-  { name: "rally_supporters", colours: ["W", "G"], yields: { unit: "supporters", amount: CONFIG.unit_yield.rally_supporters } },
-  // Red's signature + scoring verb: {R} → Red alone. Spends a zealot, scores on landing.
+  // The G-home PRIMITIVE: grow the soft stock. {R,G,W} — White courts citizens, Green grows
+  // the flock, Red does propaganda. (Red has no supporter SINK yet, so for now it simply
+  // never bothers — no special-casing needed.)
+  { name: "rally_supporters", colours: ["G", "R", "W"], yields: { unit: "supporters", amount: CONFIG.unit_yield.rally_supporters } },
+  // Red's SIGNATURE + scoring verb: {R} → Red alone. Spends a zealot, scores on landing.
   {
     name: "strike",
     colours: ["R"],
@@ -152,9 +161,9 @@ export const VERBS: VerbSpec[] = [
       alsoKnocks: CONFIG.scoring.strike_landed.marker_knockback,
     },
   },
-  // R–G authenticity edge: shared by Red and (later) Green. Green thus makes BOTH
-  // currencies (it sits on rally's W–G and muster's R–G). Mints the hard flow.
-  { name: "muster_zealots", colours: ["R", "G"], yields: { unit: "zealots", amount: CONFIG.unit_yield.muster_zealots } },
+  // The R-home PRIMITIVE: raise force. {B,R,G} — Red drafts, Green's faithful take up arms,
+  // Black (later) hires muscle. White is structurally non-militant: W is not in the tags.
+  { name: "muster_zealots", colours: ["R", "B", "G"], yields: { unit: "zealots", amount: CONFIG.unit_yield.muster_zealots } },
 ];
 
 export const VERB_BY_NAME: Record<string, VerbSpec> = Object.fromEntries(
@@ -280,8 +289,8 @@ export const WHITE_DECK_TEMPLATE: string[] = [
 
 // -----------------------------------------------------------------------------
 // Per-character facts for the Rulebook — derived from the FACTIONS registry, so there
-// is nothing here to drift from the engine. Which verbs a character can do and its
-// emergent shard are DERIVED via verbsFor() / VERBS.
+// is nothing here to drift from the engine. Which verbs a character can do is DERIVED
+// via verbsFor() / VERBS.
 
 export interface CharacterSpec {
   id: FactionId;
@@ -299,12 +308,3 @@ export const CHARACTERS: CharacterSpec[] = FACTION_IDS.map((id) => ({
   scoring: FACTIONS[id].scoring,
 }));
 
-// A character's emergent "shard" = the colours appearing across the verbs it can
-// reach. Not declared — computed. Comes out as centre + adjacent wings.
-export function shardOf(f: FactionId): Colour[] {
-  const seen = new Set<Colour>();
-  for (const name of verbsFor(f)) {
-    for (const c of VERB_BY_NAME[name].colours) seen.add(c);
-  }
-  return [...seen];
-}

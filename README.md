@@ -27,7 +27,7 @@ The **Rulebook** tab renders live from the config data.
 `gui/src/` — the engine + GUI:
 - `config.ts` — **every balance number + the data model**: the `FACTIONS` registry (one row per
   faction: colour, draw rates, starting resources), the colour-tagged verb table, and the decree
-  set. `canDo` / `verbsFor` / `shardOf` derive availability. Edit this to tune; the Rulebook
+  set. `canDo` / `verbsFor` derive availability. Edit this to tune; the Rulebook
   re-renders from it. Single source of truth.
 - `game.ts` — the engine: the boardgame.io `Game` (setup / moves / turn hooks / win check), a
   reducer over state `G`. Holds the shared decks + decree table, the decree **hook pipeline**
@@ -46,21 +46,25 @@ The **Rulebook** tab renders live from the config data.
 **A character is one colour** (White = W, Red = R). **A verb is tagged with one or more
 colours; a character can do a verb iff its colour is among the tags** (`canDo`). That single
 rule produces everything:
-- a **one-colour** verb → only one character reaches it (a de-facto *signature*):
+- a **signature** verb has one colour → only one character reaches it:
   `allocate_supporters` {W}, `strike` {R};
-- a **two-adjacent-colour** (or more) verb → shared by the neighbours on the wheel:
-  `rally_supporters` {W,G}, `muster_zealots` {R,G}, `enact_decree` {W,U,G};
-- a character's **shard** is *derived* (`shardOf`) — the colours across the verbs it can reach —
-  never declared. It comes out as centre + wings because tags follow wheel adjacency.
+- a **primitive** verb has three adjacent colours — a *home* colour plus its two wheel
+  neighbours: `enact_decree` (home W) {G,W,U}, `rally_supporters` (home G) {R,G,W},
+  `muster_zealots` (home R) {B,R,G}. There are never 2-colour verbs, so the whole vocabulary
+  caps at 10 (5 primitives + 5 signatures);
+- a character's **shard** is design vocabulary only (its colour + the two wheel neighbours) —
+  it's never declared and never appears in the engine; the code knows nothing but tags + `canDo`.
 
-Units are two currencies, one per green wheel-edge:
-- **supporters** (G–W community, soft *stock*) — White's edict fuel; `rally_supporters` {W,G}.
-- **zealots** (G–R authenticity, hard *flow*) — Red's ammunition; `muster_zealots` {R,G},
+Units are two currencies, one per unit-minting primitive:
+- **supporters** (community, soft *stock*) — White's edict fuel, Green's crop;
+  `rally_supporters` (G-home).
+- **zealots** (authenticity, hard *flow*) — Red's ammunition; `muster_zealots` (R-home),
   spent by `strike`.
 
-White is W, and no zealot-making verb is tagged W, so White is **structurally non-militant** — it
-can't muster or strike, no special case in code. Green (when built) is G and sits on *both* green
-edges, so it makes both currencies.
+White is W, and the zealot-making verb has no W tag, so White is **structurally non-militant** —
+it can't muster or strike, no special case in code. Red can rally supporters but has no supporter
+sink, so it doesn't bother; Green (when built) reaches both unit primitives *and* both sinks'
+upstream decrees.
 
 **Decrees** are standing rules on a **shared table**, enacted by anyone in {W,U,G} (White backs
 platforms, Blue plays tempo bets, Green stabilises), that hook every player's verbs. They pay no

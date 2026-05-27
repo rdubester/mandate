@@ -211,6 +211,11 @@ export function MandateBoard(props: Props) {
                 Muster Zealots (+{CONFIG.unit_yield.muster_zealots})
               </button>
             )}
+            {canDo(RED, "rally_supporters") && (
+              <button onClick={() => moves.rallySupporters()}>
+                Rally Supporters (+{CONFIG.unit_yield.rally_supporters})
+              </button>
+            )}
             {canDo(RED, "strike") && (
               <button
                 disabled={!canStrike}
