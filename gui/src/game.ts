@@ -553,10 +553,15 @@ function enumerateMoves(G: GameState, ctx: { currentPlayer: string }): AiEnumera
   if (canDo(faction, "enact_decree")) {
     for (const id of new Set(p.hand)) out.push({ move: "enactDecree", args: [id] });
   }
-  // allocate_supporters: all-K-onto-one-decree, one option per in-play decree (if stock>0).
+  // allocate_supporters: all-K-onto-one-decree, one option per in-play decree that has room
+  // under the support cap (else the move would be a rejected no-op). Capped at remaining room.
   if (canDo(faction, "allocate_supporters") && p.supporters > 0) {
     const k = CONFIG.supporter_allocate_k;
-    for (const id of G.decreesInPlay) out.push({ move: "allocateSupporters", args: [Array(k).fill(id)] });
+    const cap = CONFIG.supporter_cap_per_decree;
+    for (const id of G.decreesInPlay) {
+      const room = cap - supportOn(G, id);
+      if (room > 0) out.push({ move: "allocateSupporters", args: [Array(Math.min(k, room)).fill(id)] });
+    }
   }
   if (canDo(faction, "deliberate") && G.decreeDeck.length > 0) out.push({ move: "deliberate" });
   if (canDo(faction, "rally_supporters")) out.push({ move: "rallySupporters" });
