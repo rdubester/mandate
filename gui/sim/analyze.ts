@@ -1,13 +1,16 @@
-// One-off analysis: run MCTS-vs-MCTS games, print a couple of full narratives + aggregate
-// stats parsed from the per-game G.log, to see WHAT STRATEGIES the bots actually employ.
+// Diagnostic: run MCTS games and surface not just WHO wins but whether play is HEALTHY —
+// i.e. not dominated by one degenerate line. We can't directly see the bots' intent, but the
+// log records every move, so per game we measure each faction's MOVE MIX (which verbs it used
+// and how concentrated), game LENGTH, and flag outliers (very short = rush, very long = stall)
+// and low action-space utilization. Then we dump a few representative + a few outlier logs.
 //
-//   npm run analyze                      # defaults: 30 games @ 40 iters, 2 sample logs
-//   npm run analyze -- -n 60 --iters 80 --logs 3
+//   npm run analyze                       # 30 games @ 50 iters
+//   npm run analyze -- -n 60 --iters 80
 //
-// Throwaway/diagnostic — not part of the test suite.
+// Not part of the test suite.
 
 import { runGameMCTS } from "./driver";
-import { CONFIG, WHITE, RED, type FactionId } from "../src/config";
+import { CONFIG, WHITE, RED, verbsFor, type FactionId } from "../src/config";
 
 function flagInt(argv: string[], flag: string, dflt: number): number {
   const i = argv.indexOf(flag);
@@ -15,104 +18,134 @@ function flagInt(argv: string[], flag: string, dflt: number): number {
   return dflt;
 }
 
-// Per-game features pulled from the log + final state. The log lines are stable strings
-// emitted by game.ts (see each move), so we can count behaviours from them.
-interface Features {
+// Map a log line to (seat, move-kind), or null if it's not a faction action line. Move-kinds
+// are the distinct things a player DOES — the action-space we want to see exercised.
+type Kind =
+  | "enact" | "support" | "rally" | "muster" | "deliberate"
+  | "strikeMandate" | "strikeDecree";
+function classify(line: string): { who: FactionId; kind: Kind } | null {
+  const who: FactionId | null = line.startsWith("white ") ? WHITE : line.startsWith("red ") ? RED : null;
+  if (!who) return null;
+  if (line.includes("enacts decree")) return { who, kind: "enact" };
+  if (line.includes("supports")) return { who, kind: "support" };
+  if (line.includes("rally_supporters:")) return { who, kind: "rally" };
+  if (line.includes("muster_zealots:")) return { who, kind: "muster" };
+  if (line.includes("deliberates")) return { who, kind: "deliberate" };
+  if (line.includes("strikes the Mandate track")) return { who, kind: "strikeMandate" };
+  if (line.includes("strikes decree")) return { who, kind: "strikeDecree" };
+  return null;
+}
+
+// Shannon entropy of a move-kind distribution, normalised 0..1 (1 = perfectly even spread of
+// the kinds used, 0 = a single move). A blunt "how varied was this faction's play" gauge.
+function normEntropy(counts: number[]): number {
+  const total = counts.reduce((a, b) => a + b, 0);
+  if (total === 0) return 0;
+  const used = counts.filter((c) => c > 0);
+  if (used.length <= 1) return 0;
+  const h = -used.reduce((s, c) => { const p = c / total; return s + p * Math.log2(p); }, 0);
+  return h / Math.log2(used.length); // normalise by max possible for the # of kinds used
+}
+
+interface Game {
   winner: FactionId | "draw" | null;
   turns: number;
-  whiteMandate: number;
-  redMandate: number;
-  whiteBiteMandate: number; // Mandate White got from supported-decree bites
-  enacts: number;
-  supports: number; // allocate_supporters actions
-  strikeMandate: number; // Red strikes on the Mandate track
-  strikeDecree: number; // Red strikes on a decree (removal/shield-grind)
-  musters: number;
-  rallies: number;
-  deliberates: number;
-  decreesRemoved: number; // decrees actually struck off the board
-  everSupported: boolean; // did White get at least one decree supported?
+  log: string[];
+  mix: Record<FactionId, Partial<Record<Kind, number>>>;
+  kindsUsed: Record<FactionId, number>; // how many distinct move-kinds each faction used
+  topShare: Record<FactionId, number>; // fraction of a faction's actions that were its #1 move
 }
 
-function extract(log: string[], r: { winner: Features["winner"]; turns: number; mandate: Record<FactionId, number> }): Features {
-  const has = (s: string) => (l: string) => l.includes(s);
-  const count = (s: string) => log.filter(has(s)).length;
-  // Mandate White earned specifically from bites (sum the "+N Mandate" on bite lines).
-  const biteMandate = log
-    .filter(has("bites"))
-    .reduce((sum, l) => sum + (parseInt(l.match(/\+(\d+) Mandate/)?.[1] ?? "0", 10) || 0), 0);
-  return {
-    winner: r.winner,
-    turns: r.turns,
-    whiteMandate: r.mandate[WHITE],
-    redMandate: r.mandate[RED],
-    whiteBiteMandate: biteMandate,
-    enacts: count("enacts decree"),
-    supports: count("white supports"),
-    strikeMandate: count("'s Mandate:"), // "red strikes white's Mandate: ..."
-    strikeDecree: log.filter((l) => l.includes("strikes decree")).length,
-    musters: count("muster_zealots:"),
-    rallies: count("rally_supporters:"),
-    deliberates: count("deliberates:"),
-    decreesRemoved: count("off the table"),
-    everSupported: log.some(has("white supports")),
-  };
+function analyzeGame(r: { winner: Game["winner"]; turns: number; log: string[] }): Game {
+  const mix: Game["mix"] = { [WHITE]: {}, [RED]: {} };
+  for (const line of r.log) {
+    const c = classify(line);
+    if (!c) continue;
+    mix[c.who][c.kind] = (mix[c.who][c.kind] ?? 0) + 1;
+  }
+  const kindsUsed = {} as Record<FactionId, number>;
+  const topShare = {} as Record<FactionId, number>;
+  for (const f of [WHITE, RED] as FactionId[]) {
+    const counts = Object.values(mix[f]);
+    const total = counts.reduce((a, b) => a + b, 0);
+    kindsUsed[f] = counts.filter((c) => c > 0).length;
+    topShare[f] = total ? Math.max(...counts, 0) / total : 0;
+  }
+  return { ...r, mix, kindsUsed, topShare };
 }
 
-function mean(xs: number[]): number {
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+function mean(xs: number[]): number { return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0; }
+function pct(c: number, n: number): string { return `${((100 * c) / n).toFixed(0)}%`; }
+
+// How many move-kinds each faction COULD use (its verb menu, + the two strike targets count
+// as two kinds for whoever can strike). For utilization denominators.
+function availableKinds(f: FactionId): number {
+  const verbs = verbsFor(f);
+  let k = 0;
+  if (verbs.includes("enact_decree")) k++;
+  if (verbs.includes("allocate_supporters")) k++;
+  if (verbs.includes("rally_supporters")) k++;
+  if (verbs.includes("muster_zealots")) k++;
+  if (verbs.includes("deliberate")) k++;
+  if (verbs.includes("strike")) k += 2; // strikeMandate + strikeDecree
+  return k;
 }
 
 async function main() {
   const argv = process.argv.slice(2);
   const n = flagInt(argv, "-n", 30);
-  const iters = flagInt(argv, "--iters", 40);
-  const nLogs = flagInt(argv, "--logs", 2);
+  const iters = flagInt(argv, "--iters", 50);
 
-  const feats: Features[] = [];
-  const sampleLogs: string[][] = [];
-
+  const games: Game[] = [];
   for (let i = 0; i < n; i++) {
     const r = await runGameMCTS({ iterations: iters });
-    feats.push(extract(r.log, r));
-    if (sampleLogs.length < nLogs) sampleLogs.push(r.log);
+    games.push(analyzeGame(r));
     process.stdout.write(".");
   }
   process.stdout.write("\n");
 
-  // ---- sample narratives ----
-  sampleLogs.forEach((log, i) => {
-    console.log(`\n========== SAMPLE GAME ${i + 1} ==========`);
-    for (const line of log) console.log(line);
-  });
-
-  // ---- aggregate stats ----
+  // ---- win rate + length ----
   const wins = { [WHITE]: 0, [RED]: 0, draw: 0, none: 0 } as Record<string, number>;
-  for (const f of feats) wins[f.winner ?? "none"] = (wins[f.winner ?? "none"] ?? 0) + 1;
-  const whiteWins = feats.filter((f) => f.winner === WHITE);
-  const redWins = feats.filter((f) => f.winner === RED);
+  for (const g of games) wins[g.winner ?? "none"]++;
+  const turns = games.map((g) => g.turns).sort((a, b) => a - b);
+  console.log(`\n===== ${n} determinized MCTS games @ ${iters} iters · target ${CONFIG.mandate_target} =====`);
+  console.log(`  White ${wins[WHITE]} (${pct(wins[WHITE], n)}) · Red ${wins[RED]} (${pct(wins[RED], n)})` +
+    (wins.draw ? ` · draw ${wins.draw}` : "") + (wins.none ? ` · none ${wins.none}` : ""));
+  console.log(`  turns: mean ${mean(turns).toFixed(1)} · median ${turns[Math.floor(n / 2)]} · min ${turns[0]} · max ${turns[n - 1]}`);
+  // cap-hitters = potential stalls
+  const capped = games.filter((g) => g.turns >= CONFIG.max_turns).length;
+  if (capped) console.log(`  ⚠ ${capped} game(s) hit the turn cap (${CONFIG.max_turns}) — possible stall`);
 
-  console.log(`\n========== AGGREGATE (${n} MCTS games @ ${iters} iters) ==========`);
-  console.log(`  wins: White ${wins[WHITE]} / Red ${wins[RED]} / draw ${wins.draw} / none ${wins.none}`);
-  console.log(`  mean turns: ${mean(feats.map((f) => f.turns)).toFixed(1)}`);
-  console.log(`  White supported ≥1 decree in ${feats.filter((f) => f.everSupported).length}/${n} games`);
-  console.log("\n  per-game averages (all games):");
-  const avg = (k: keyof Features) => mean(feats.map((f) => f[k] as number)).toFixed(1);
-  console.log(`    White: enact ${avg("enacts")} · support ${avg("supports")} · rally ${avg("rallies")} · deliberate ${avg("deliberates")}`);
-  console.log(`    Red:   muster ${avg("musters")} · strike-Mandate ${avg("strikeMandate")} · strike-decree ${avg("strikeDecree")}`);
-  console.log(`    decrees removed by Red: ${avg("decreesRemoved")}`);
-  console.log(`    White Mandate from bites: ${avg("whiteBiteMandate")} (of ${avg("whiteMandate")} total)`);
+  // ---- health: move-mix per faction ----
+  console.log(`\n  move-mix health (are both sides using their action space?):`);
+  for (const f of [WHITE, RED] as FactionId[]) {
+    const avail = availableKinds(f);
+    const usedAvg = mean(games.map((g) => g.kindsUsed[f]));
+    const topAvg = mean(games.map((g) => g.topShare[f]));
+    const entAvg = mean(games.map((g) => normEntropy(Object.values(g.mix[f]))));
+    const name = f === WHITE ? "White" : "Red";
+    console.log(`    ${name}: uses ${usedAvg.toFixed(1)}/${avail} move-kinds/game · top move = ${(100 * topAvg).toFixed(0)}% of its actions · variety(entropy) ${entAvg.toFixed(2)}`);
+    // aggregate which kinds, how often
+    const totals: Record<string, number> = {};
+    for (const g of games) for (const [k, c] of Object.entries(g.mix[f])) totals[k] = (totals[k] ?? 0) + c;
+    const grand = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+    const breakdown = Object.entries(totals).sort((a, b) => b[1] - a[1])
+      .map(([k, c]) => `${k} ${((100 * c) / grand).toFixed(0)}%`).join(" · ");
+    console.log(`      ${breakdown}`);
+  }
+  console.log(`  (low move-kinds used, or top-move >~70%, or entropy <~0.5 = a faction leaning on one degenerate line.)`);
 
-  const cmp = (label: string, games: Features[]) => {
-    if (!games.length) return;
-    const a = (k: keyof Features) => mean(games.map((f) => f[k] as number)).toFixed(1);
-    console.log(
-      `    [${label}] turns ${a("turns")} · W bites ${a("whiteBiteMandate")} · Red strike-decree ${a("strikeDecree")} · decrees removed ${a("decreesRemoved")}`,
-    );
-  };
-  console.log("\n  split by winner:");
-  cmp("White wins", whiteWins);
-  cmp("Red wins", redWins);
+  // ---- sample logs: shortest, longest, and a median game ----
+  const byLen = [...games].sort((a, b) => a.turns - b.turns);
+  const picks: [string, Game][] = [
+    ["SHORTEST (rush check)", byLen[0]],
+    ["MEDIAN", byLen[Math.floor(byLen.length / 2)]],
+    ["LONGEST (stall check)", byLen[byLen.length - 1]],
+  ];
+  for (const [tag, g] of picks) {
+    console.log(`\n========== ${tag} — ${g.turns} turns, ${g.winner} won ==========`);
+    for (const line of g.log) console.log(line);
+  }
 }
 
 main();
