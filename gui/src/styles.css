@@ -150,14 +150,17 @@ header h1 { margin: 0 0 4px 0; font-size: 22px; letter-spacing: 1px; color: var(
 .status { color: var(--muted); }
 .winner { color: var(--accent); font-weight: bold; }
 
-.seat-switcher {
+.seat-control {
   margin-bottom: 12px;
   padding: 8px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.seat-switcher button { margin: 0 4px; }
+.seat-toggle { padding: 4px 10px; }
 .seat-hint { color: var(--muted); margin-left: 12px; font-size: 12px; }
 
 .scoreboard {
