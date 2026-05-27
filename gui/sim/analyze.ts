@@ -51,12 +51,15 @@ interface Game {
   winner: FactionId | "draw" | null;
   turns: number;
   log: string[];
+  mandate: Record<FactionId, number>; // final scores (for margin / shutout closeness stats)
   mix: Record<FactionId, Partial<Record<Kind, number>>>;
   kindsUsed: Record<FactionId, number>; // how many distinct move-kinds each faction used
   topShare: Record<FactionId, number>; // fraction of a faction's actions that were its #1 move
 }
 
-function analyzeGame(r: { winner: Game["winner"]; turns: number; log: string[] }): Game {
+function analyzeGame(
+  r: { winner: Game["winner"]; turns: number; log: string[]; mandate: Record<FactionId, number> },
+): Game {
   const mix: Game["mix"] = { [WHITE]: {}, [RED]: {} };
   for (const line of r.log) {
     const c = classify(line);
@@ -115,6 +118,26 @@ async function main() {
   // cap-hitters = potential stalls
   const capped = games.filter((g) => g.turns >= CONFIG.max_turns).length;
   if (capped) console.log(`  ⚠ ${capped} game(s) hit the turn cap (${CONFIG.max_turns}) — possible stall`);
+
+  // ---- closeness: are games CONTESTED or blowouts? (the thing win-rate hides) ----
+  // For each decided game: the loser's final score, and the margin. A healthy interactive
+  // game has the loser scoring a decent fraction of target; a blowout/RPS matchup has the
+  // loser near 0. "Shutout" = loser under 25% of target (got stomped).
+  const decided = games.filter((g) => g.winner === WHITE || g.winner === RED);
+  const target = CONFIG.mandate_target;
+  const loserScores = decided.map((g) => {
+    const w = g.mandate[WHITE], r = g.mandate[RED];
+    return Math.min(w, r); // the loser scored the smaller total
+  });
+  const margins = decided.map((g) => Math.abs(g.mandate[WHITE] - g.mandate[RED]));
+  const shutouts = loserScores.filter((s) => s < target * 0.25).length;
+  const close = margins.filter((m) => m <= target * 0.25).length; // within a quarter-target
+  console.log(`\n  closeness (contested vs blowout — win-rate hides this):`);
+  console.log(`    loser's final score: mean ${mean(loserScores).toFixed(1)} of ${target}` +
+    ` (higher = more contested)`);
+  console.log(`    margin: mean ${mean(margins).toFixed(1)}` +
+    ` · shutouts (loser <${(target * 0.25).toFixed(0)}): ${shutouts}/${decided.length}` +
+    ` · close games (margin ≤${(target * 0.25).toFixed(0)}): ${close}/${decided.length}`);
 
   // ---- health: move-mix per faction ----
   console.log(`\n  move-mix health (are both sides using their action space?):`);
