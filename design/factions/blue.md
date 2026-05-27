@@ -3,7 +3,7 @@
 Status: **design only — nothing here is implemented yet.** Blue lands fourth in the build
 order (after Green). These notes capture where the Blue design has settled so far, so the
 eventual implementation and the other docs have one place to point at. Balance numbers stay
-out of this doc on principle; they belong in the balance-notes doc, read off the sim.
+out of this doc on principle; they belong in `../balance-notes.md`, read off the sim.
 
 ## Core identity
 

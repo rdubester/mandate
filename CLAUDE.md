@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Active prototype. There is **one engine: the TypeScript / boardgame.io app in `gui/`** (the Python prototype that came first has been deleted). The design source of truth is `the-character-model.md` (which has evolved past the original `the-mandate-design-brief.md` — read the character-model doc first, then the brief for §-references). When asked to "build" or change rules, edit `gui/src/config.ts` (data) and `gui/src/game.ts` (logic); see `README.md` for the file map.
+Active prototype. There is **one engine: the TypeScript / boardgame.io app in `gui/`** (the Python prototype that came first has been deleted). The design source of truth is `design/core-model.md`; per-faction notes live in `design/factions/`, matchup dynamics in `design/matchups.md`, tuning results in `design/balance-notes.md`, and the original brief is archived at `design/history/the-mandate-design-brief.md` (historical — don't build from it). When asked to "build" or change rules, edit `gui/src/config.ts` (data) and `gui/src/game.ts` (logic); see `README.md` for the file map.
 
-The brief still governs the locked architecture below — follow it rather than improvising — but the model has moved on in ways the brief predates. The current model (see `the-character-model.md`): **a character is one colour; a verb is tagged with one or more colours; a character can do a verb iff its colour is among the tags** (`canDo` in `config.ts`). Shard / signature / wing / home are design-doc vocabulary only — never declared in code or data. Verbs come in exactly two shapes: **signatures** (one colour) and **primitives** (three adjacent colours: a home colour + its two wheel neighbours) — never 2-colour, so the vocabulary caps at 10. The unit economy is **two currencies minted by the two unit primitives** (supporters via `rally_supporters` {G,R,W}, zealots via `muster_zealots` {R,B,G}; no soldiers). Do NOT reintroduce `if colour == X` branches, declared shards, a "signature" flag, or 2-colour verb rows — those were all removed in favour of plain colour-tagged verb rows.
+The locked architecture is summarised below (in full in `design/core-model.md`) — follow it rather than improvising. The current model: **a character is one colour; a verb is tagged with one or more colours; a character can do a verb iff its colour is among the tags** (`canDo` in `config.ts`). Shard / signature / wing / home are design-doc vocabulary only — never declared in code or data. Verbs come in exactly two shapes: **signatures** (one colour) and **primitives** (three adjacent colours: a home colour + its two wheel neighbours) — never 2-colour, so the vocabulary caps at 10. The unit economy is **two currencies minted by the two unit primitives** (supporters via `rally_supporters` {G,R,W}, zealots via `muster_zealots` {R,B,G}; no soldiers). Do NOT reintroduce `if colour == X` branches, declared shards, a "signature" flag, or 2-colour verb rows — those were all removed in favour of plain colour-tagged verb rows.
 
 Decree scoring specifically: **`enact_decree` is SHARED {W,U,G}, not White's signature.** White's signature is **`allocate_supporters`** {W} — it places up to K supporters (from the loose stock grown by `rally_supporters`) onto decrees as *support*. A supported decree (≥1) both **scores each of its supporters** when it "bites" (rider complied with / always-clause fires) and is **defended** (a strike strips a supporter before it can remove the decree) — markers and shields collapsed into this one "support" concept. Support is keyed per player (`G.support[decreeId][seat]`), so a decree bites for *every* seat with support on it (the hook for a White-vs-White juggling metagame). Decrees live on the **shared table** (`G.decreesInPlay`) and pay no one for ownership. Don't revert `enact_decree` to a White-only signature, reattach scoring to the decree owner, or hardcode `WHITE` as the sole scorer in the decree chain.
 
@@ -30,44 +30,21 @@ Hard architectural constraints (from §10, still honoured in the TS engine):
 
 ## Core architecture you must preserve
 
-These are locked decisions from §2 and §7. Do not "improve" past them without the user explicitly revisiting the brief.
+The full locked architecture is the first section of `design/core-model.md` — read it before changing rules. The constraints most often at risk from well-meaning edits:
 
-- **Pentagon is the primitive structure.** 5 factions = 5 MTG-style three-colour shards in wheel order **White–Blue–Black–Red–Green**. Each faction has 2 allied neighbours and 2 enemies across the wheel.
-- **Two strictly separated layers:** *primitives* (cards, units, black's actions) and the *victory layer* (the Mandate — a single shared track, first past the post, target ~200).
-- **Symmetry is broken exactly once, at black.** Do not make a second faction "special." Black owns no primitive; its action menu is built around `Convert`. Black is the fixed point of the {White↔Green, Blue↔Red} reflection — that is the formal license for its unique "circulation" scoring rule.
-- **Shard IS the action menu.** Each faction can take exactly **3 of the 5 primitive actions** (the colours of its shard), and **scores Mandate only via its centre colour's action**. The five centre-action scoring perks:
-  - White (centre of GWU) — `Decree`: scores when a decree *bites* (decoupled / over-time).
-  - Blue (centre of WUB) — `Research`: scores on play (welded / immediate).
-  - Red (centre of BRG) — `Strike`: scores on landing (welded / immediate).
-  - Green (centre of RGW) — `Procession`: cash N units → Mandate (decoupled / over-time).
-  - Black (centre of UBR) — `Convert`: scores on throughput / circulation (the third mode).
-- **Turn skeleton is one-size-fits-all:** draw step (volume varies — blue draws most), then **2 actions** from the faction's 3-action shard menu, then pass. **Do not build per-faction turn phases.** Liveliness comes from decrees firing passively and blue/red reacting between turns.
-- **Card/unit factoring is forced by the wheel:** cards = {White decrees (permanent, communal), Blue research (one-shot, deckbuilder fuel)}; units = {Red zealots (flow, spent on strikes — the model dropped "soldiers"), Green supporters (stock, grown and cashed)}; black is the hinge with no primitive.
-
-## Counterplay model (§5) — two principles, kept distinct
-
-1. **Granularity** (along the archetype axis): ramp factions (Blue, Green) hold many small resources — ±1 effects barely register; beat them with **growth denial** (attack acceleration, not stock). Interaction factions (White, Red) rest on few chunky pieces — ±1 is huge; beat them with **stock attrition**.
-2. **The wheel**: designed enemy relationships across the pentagon.
-
-Do **not** try to explain every matchup with a single principle — earlier attempts to unify them made matchups murky.
-
-## Balance parameters (must be config from day one)
-
-Per §10, expose at least:
-- Mandate target (~200 provisional).
-- White: score per decree bite; positive/negative decree ratio.
-- Blue: card-velocity increment per upgrade (additive, not multiplicative — §3 "gentle slope"); research acquisition cost; score per research played.
-- Red: unit cost per strike; score per strike; marker-knockback amount.
-- Green: unit→Mandate conversion rate (procession); actions granted per unit.
-- Black: throughput-scoring rate per conversion; conversion exchange rates.
-- Turn structure: actions per turn; per-faction draw volume.
+- **Two layers, one shared Mandate track** (first past the post; the target is config, never quote it in docs).
+- **Pentagon, wheel order W–U–B–R–G**; symmetry broken exactly once, at Black — do not make a second faction "special."
+- **One turn skeleton for everyone** (draw step, 2 actions, pass). Do NOT build per-faction turn phases.
+- **Each faction = 3 primitives + 1 signature; scoring rides the centre and is never lent out** (White decree-bites, Blue research, Red strikes, Green procession, Black circulation).
+- **Counterplay stays two distinct principles** — granularity (ramp factions lose to growth denial, interaction factions to stock attrition) and the wheel (designed enemies). Don't unify them.
+- **Every number is named config in `config.ts`** — no constants in rule logic. Tuning results (win-rates, parameter bands) go in `design/balance-notes.md`, never in docs or code comments.
 
 ## Known-open questions (don't silently resolve)
 
-From §7 and §3 — flag these if the user's request implicitly picks an answer:
+Flag these if the user's request implicitly picks an answer:
 - **Player count.** Pentagon is strongest at 5; fewer means standalone tuning. Not yet decided.
 - Black's exact conversion set and throughput rate.
-- Red combat-resolution detail; green sanctuary rules; blue's research-acquisition shape (MVP: blue improves its deck from its own plays — no separate shared market).
+- Red combat-resolution detail; green sanctuary rules (likely cut); Blue's exact card list and publish-action shape. (Blue's mechanics — shared research commons, private Archive, publish-for-points — are sketched in `design/factions/blue.md`.)
 
 ## Naming
 

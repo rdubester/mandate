@@ -1,4 +1,4 @@
-// The model (see the-character-model.md):
+// The model (see design/core-model.md):
 //   A character IS ONE COLOUR. A verb is tagged with one or more colours. A character
 //   can do a verb iff its colour is among the verb's colours. The shard / wing /
 //   signature structure is NOT declared — it EMERGES from how verbs are tagged, and

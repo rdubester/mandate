@@ -1,11 +1,49 @@
-# The Character Model (design v5 increment)
+# The Mandate — core model
 
-*Supersedes the implicit faction model in the brief AND the earlier "three-tier / declared
-shard" framing of this doc's v4. Written mid-prototyping. Read alongside
-`the-mandate-design-brief.md` and `running-the-wheel.md`. The prototype (`gui/`, TypeScript) is
-the live engine; this doc is the design intent it implements.*
+*The design source of truth. Supersedes the original brief (now archived at
+`history/the-mandate-design-brief.md`) and all earlier framings of this doc. Matchup dynamics
+live in `matchups.md`, per-faction design in `factions/`, tuning results in `balance-notes.md`
+— and nowhere else: **every design fact has exactly one home; other docs link to it rather
+than restating it.** The prototype (`gui/`, TypeScript) is the live engine; this doc is the
+design intent it implements.*
 
 ---
+
+## Locked architecture (the parts of the brief that still bind)
+
+Everything still binding from the original brief lives here; where this conflicts with a §
+of the brief, this doc wins.
+
+- **Two strictly separated layers.** Primitives (cards, units, conversions) vs the victory
+  layer: the **Mandate**, a single shared first-past-the-post track (target in `config.ts`).
+- **The pentagon.** Five factions on the colour wheel **W–U–B–R–G** (Assembly, Institute,
+  Ledger, Vanguard, Orthodoxy); each has two allied neighbours and two enemies across the
+  wheel. Cards = {W decrees, U research}; units = {R zealots, G supporters}; Black owns no
+  primitive.
+- **Symmetry is broken exactly once, at Black.** No second "special" faction. Black's menu is
+  built around conversion; it is the fixed point of the {W↔G, U↔R} reflection — the formal
+  licence for its unique circulation scoring.
+- **One turn skeleton for everyone.** Draw step (volume varies by faction), then 2 actions,
+  then pass. No per-faction turn phases — liveliness comes from decrees firing passively as
+  others act.
+- **Scoring rides the centre, and centre perks are never lent out.** White: decree bites
+  (decoupled). Blue: research (welded). Red: strikes landed (welded). Green: procession
+  (decoupled). Black: circulation. Shared primitives and card-objects circulate; scoring
+  mechanics don't.
+- **Counterplay is two distinct principles — never unify them.** *Granularity*: ramp factions
+  (U, G) hold many small resources, so ±1 barely registers — beat them with growth denial
+  (attack the rate, not the stock); interaction factions (W, R) rest on few chunky pieces —
+  beat them with stock attrition. And *the wheel*: designed enemy relationships.
+- **Build order.** Spine (Mandate track + turn loop) → White vs Red → Green → Blue → Black
+  last (its kit converts the others' primitives, so it's untestable in isolation).
+- **Engineering invariants (the brief's §10, honoured by `gui/`).** Game state is a plain
+  serializable object; the turn loop is a reducer (boardgame.io moves) — deterministic,
+  replayable, time-travelable; rules lean on data in `config.ts` and every number is named
+  config; everything is observable (`G.log`); a headless harness (`npm run sim`, `npm test`)
+  drives the same engine.
+- **Open questions — don't silently resolve:** player count (pentagon is strongest at 5);
+  Black's exact conversion set and throughput rate; Red combat-resolution detail; Green
+  sanctuary rules (likely cut).
 
 ## The core model: one colour per character, colour-tagged verbs
 
@@ -61,7 +99,7 @@ static** — fixed by its colour and the verb tags. "Running the wheel into blue
 White gains blue verbs. It means White *leans harder into the wing-colour verbs it already has*,
 depending on the matchup. Example: White can always `research` (once that's a shared W–U verb);
 against Red it chooses to research *more* than it would against Black. Access is structural;
-emphasis is strategic. (See `running-the-wheel.md`.)
+emphasis is strategic. (See `matchups.md`.)
 
 ## The full verb grid (5 primitives + 5 signatures — the vocabulary ceiling)
 

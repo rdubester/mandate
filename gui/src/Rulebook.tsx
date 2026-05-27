@@ -176,7 +176,7 @@ export function Rulebook() {
           decree <em>bites</em> — paying <em>each of its supporters</em> the{" "}
           <code>score</code> — when its output fires: a rider complied with, or an
           always-clause triggering. Support also defends: a strike strips a supporter before
-          it can remove the decree. Unsupported decrees (and pure taxes) pay nothing.
+          it can remove the decree. Unsupported decrees pay nothing.
         </p>
       </section>
 
@@ -188,7 +188,7 @@ export function Rulebook() {
           <li>Green's procession (units → Mandate); the supporter/zealot spring.</li>
           <li>Black's Convert + throughput scoring.</li>
           <li>Smarter compliance (riders are auto-accepted; hook: <code>wantsRider</code>).</li>
-          <li>Cross-shard wing tools (see <code>running-the-wheel.md</code>).</li>
+          <li>Cross-shard wing tools (see <code>design/matchups.md</code>).</li>
         </ul>
       </section>
     </div>

@@ -1,10 +1,11 @@
 # The Mandate — playable MVP
 
 A browser prototype for fast balance iteration on *The Mandate*, a 5-faction colour-wheel
-board game. Currently **White (Assembly) vs. Red (Vanguard)**, per the design brief's
-recommended build path. Built on [boardgame.io](https://boardgame.io) (React + TypeScript).
+board game. Currently **White (Assembly) vs. Red (Vanguard)**, per the build order in the
+design docs. Built on [boardgame.io](https://boardgame.io) (React + TypeScript).
 
-The design source of truth is `the-character-model.md`; this app is the only engine.
+The design source of truth is [`design/core-model.md`](design/core-model.md); this app is the
+only engine.
 
 ## Run
 
@@ -24,6 +25,13 @@ The **Rulebook** tab renders live from the config data.
 
 ## Files
 
+`design/` — the design docs (every design fact has exactly one home; other docs link to it):
+- `core-model.md` — the model + locked architecture. **Source of truth.**
+- `matchups.md` — wheel dynamics: who leans on whom, and why.
+- `factions/` — per-faction design notes as they firm up (`blue.md` so far).
+- `balance-notes.md` — the tuning log; the only place sim numbers live.
+- `history/the-mandate-design-brief.md` — the original v3 brief, archived.
+
 `gui/src/` — the engine + GUI:
 - `config.ts` — **every balance number + the data model**: the `FACTIONS` registry (one row per
   faction: colour, draw rates, starting resources), the colour-tagged verb table, and the decree
@@ -41,42 +49,16 @@ The **Rulebook** tab renders live from the config data.
 - `batch.ts` — N-game sweep → win-rate + game-length distribution (`npm run sim`).
 - `engine.test.ts` — regression tests pinning the model invariants (`npm test`).
 
-## The model
+## The model (short version)
 
-**A character is one colour** (White = W, Red = R). **A verb is tagged with one or more
-colours; a character can do a verb iff its colour is among the tags** (`canDo`). That single
-rule produces everything:
-- a **signature** verb has one colour → only one character reaches it:
-  `allocate_supporters` {W}, `strike` {R};
-- a **primitive** verb has three adjacent colours — a *home* colour plus its two wheel
-  neighbours: `enact_decree` (home W) {G,W,U}, `rally_supporters` (home G) {R,G,W},
-  `muster_zealots` (home R) {B,R,G}. There are never 2-colour verbs, so the whole vocabulary
-  caps at 10 (5 primitives + 5 signatures);
-- a character's **shard** is design vocabulary only (its colour + the two wheel neighbours) —
-  it's never declared and never appears in the engine; the code knows nothing but tags + `canDo`.
+**A character is one colour; a verb is tagged with colours; a character can do a verb iff its
+colour is among the tags** (`canDo`). Verbs are either **signatures** (1 colour, one holder) or
+**primitives** (3 adjacent colours: a home + its wheel neighbours) — never 2-colour, so the
+vocabulary caps at 10. Two unit currencies: **supporters** (soft stock) and **zealots** (hard
+flow). **Decrees** are standing rules on a shared table that hook every player's verbs; whoever
+has *supported* a decree (White's signature, which also defends it) scores when it bites.
 
-Units are two currencies, one per unit-minting primitive:
-- **supporters** (community, soft *stock*) — White's edict fuel, Green's crop;
-  `rally_supporters` (G-home).
-- **zealots** (authenticity, hard *flow*) — Red's ammunition; `muster_zealots` (R-home),
-  spent by `strike`.
-
-White is W, and the zealot-making verb has no W tag, so White is **structurally non-militant** —
-it can't muster or strike, no special case in code. Red can rally supporters but has no supporter
-sink, so it doesn't bother; Green (when built) reaches both unit primitives *and* both sinks'
-upstream decrees.
-
-**Decrees** are standing rules on a **shared table**, enacted by anyone in {W,U,G} (White backs
-platforms, Blue plays tempo bets, Green stabilises), that hook every player's verbs. They pay no
-one for ownership. **White's signature is `allocate_supporters`** — it places up to K supporters
-(from the loose stock grown by `rally_supporters`) onto decrees as *support*. A supported decree
-does two things at once: it **scores each of its supporters** when it "bites" (its rider is
-complied with, or an always-clause fires), and it **defends** — a strike strips a supporter before
-it can remove the decree. Legitimacy: you score when the table acts under a rule you've backed.
-(Support is keyed per player, so two White seats could juggle support on the same shared decrees —
-the W-vs-W metagame — once seats and factions are split; see `game.ts`.)
-
-See `the-character-model.md` for the full design.
+Full design: [`design/core-model.md`](design/core-model.md).
 
 ## Tuning loop
 
@@ -87,7 +69,7 @@ under strong play rather than the scripted heuristics.
 
 Balance findings — win-rates, the bands you've tried, which knob moved what — deliberately do
 **not** live in these docs or in `config.ts` comments. They change every tuning pass and rot fast;
-keep them in a separate balance-notes doc instead.
+log them in [`design/balance-notes.md`](design/balance-notes.md) instead.
 
 ## What's intentionally minimal
 

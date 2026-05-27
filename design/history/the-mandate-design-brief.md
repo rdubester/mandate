@@ -1,5 +1,13 @@
 # The Mandate — Design Brief (v3)
 
+> **Historical document — do not build from this.** Kept for §-references and history. The
+> live design source of truth is `../core-model.md`; where anything here conflicts with it,
+> the core model wins. Known-superseded ideas in this brief include: Red "soldiers" (now
+> zealots), the five named primitive actions and declared shards (now colour-tagged verbs),
+> White "marking" decrees (now supporter-based support), Mandate knockback on strikes (cut),
+> 2-colour edge verbs (verbs are 1- or 3-colour), and Blue having no shared research pool
+> (there is a shared commons — see `../factions/blue.md`).
+
 *Working title. A 5-faction card/area game of court politics. This is v3, incorporating the
 2x2/pentagon structural finding, the action-loadout definition of shards, the counterplay
 principles, and black's pivot from parasite to broker. It is the handoff document into a rapid
