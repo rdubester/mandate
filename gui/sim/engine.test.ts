@@ -268,6 +268,23 @@ describe("supporter-scoring: only supported decrees bite (markers+shields collap
     c.stop();
   });
 
+  it("support on a single decree is capped (no un-removable fortress)", () => {
+    const c = newClient();
+    expect(driveUntilInPlay(c, "open_records")).toBe(true);
+    const cap = CONFIG.supporter_cap_per_decree;
+    // Repeatedly rally + dump everything onto open_records over several White turns; total
+    // support must never exceed the cap no matter how much White tries to pile on.
+    for (let t = 0; t < 6; t++) {
+      freshWhiteTurn(c);
+      seatTo(c, WHITE);
+      c.moves.rallySupporters();
+      c.moves.allocateSupporters(Array(CONFIG.supporter_allocate_k * 2).fill("open_records"));
+      expect(supportOn(G(c), "open_records")).toBeLessThanOrEqual(cap);
+    }
+    expect(supportOn(G(c), "open_records")).toBe(cap); // reached, not exceeded
+    c.stop();
+  });
+
   it("striking a decree yields Red NO Mandate (pure removal)", () => {
     const c = newClient();
     expect(driveUntilInPlay(c, "open_records")).toBe(true);

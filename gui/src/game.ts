@@ -300,10 +300,12 @@ const allocateSupporters: Move<GameState> = ({ G, playerID, ctx }, placements: s
   const ev = fireVerb(G, "allocate_supporters", seat, { allocK: CONFIG.supporter_allocate_k });
   const k = Math.max(0, ev.allocK);
   const inPlay = new Set(G.decreesInPlay);
+  const cap = CONFIG.supporter_cap_per_decree;
   let placed = 0;
   for (const id of placements ?? []) {
     if (placed >= k || p.supporters <= 0) break;
     if (!inPlay.has(id)) continue; // can only support a decree on the table
+    if (supportOn(G, id) >= cap) continue; // decree at durability cap — can't over-stack
     if (!G.support[id]) G.support[id] = {};
     const owners = G.support[id];
     p.supporters -= 1;

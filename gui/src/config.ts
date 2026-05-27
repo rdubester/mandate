@@ -101,6 +101,12 @@ export const CONFIG = {
   // scoring on (flat). K itself is decree-modifiable (path "allocK").
   supporter_allocate_k: 3,
 
+  // Max TOTAL supporters (across all seats) on a single decree. Caps a decree's durability so
+  // White can't build an un-removable fortress (Red can always strip it in ≤cap strikes) —
+  // which removes the stall where a 10+-support decree never falls and neither side closes.
+  // Forces White to spread support or pivot to scoring rather than over-invest in one decree.
+  supporter_cap_per_decree: 3,
+
   scoring: {
     strike_landed: {
       // Red scores Mandate ONLY by striking the Mandate track. Striking a decree yields

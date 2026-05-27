@@ -86,13 +86,23 @@ const whitePolicy: Policy = (G, seat) => {
   if (canDo(seat, "enact_decree") && scoringInPlay.length === 0 && scoringInHand) {
     return { move: "enactDecree", args: [scoringInHand] };
   }
-  // Support a scoring decree (turns scoring on if unsupported; else reinforces the
-  // most-exposed one). Pile this turn's K onto a single decree (engine caps at K/stock).
-  if (canDo(seat, "allocate_supporters") && G.players[WHITE].supporters > 0 && scoringInPlay.length > 0) {
-    const target = [...scoringInPlay].sort(
-      (a, b) => supportOn(G, a) - supportOn(G, b),
-    )[0];
-    return { move: "allocateSupporters", args: [Array(CONFIG.supporter_allocate_k).fill(target)] };
+  // Support scoring decrees that aren't yet at the durability cap (turns scoring on if
+  // unsupported; else reinforces). Spread across under-cap decrees, fewest-support first, so
+  // we never over-stack one (which the engine would reject) — and stop at the cap.
+  const cap = CONFIG.supporter_cap_per_decree;
+  const supportable = scoringInPlay.filter((id) => supportOn(G, id) < cap);
+  if (canDo(seat, "allocate_supporters") && G.players[WHITE].supporters > 0 && supportable.length > 0) {
+    const room: Record<string, number> = {};
+    for (const id of supportable) room[id] = cap - supportOn(G, id);
+    const queue = [...supportable].sort((a, b) => supportOn(G, a) - supportOn(G, b));
+    const placements: string[] = [];
+    let qi = 0;
+    while (placements.length < CONFIG.supporter_allocate_k && queue.some((id) => room[id] > 0)) {
+      const id = queue[qi % queue.length];
+      if (room[id] > 0) { placements.push(id); room[id]--; }
+      qi++;
+    }
+    if (placements.length) return { move: "allocateSupporters", args: [placements] };
   }
   // Need supporters to support with, or more decrees to support.
   if (scoringInPlay.length > 0 && G.players[WHITE].supporters === 0 && canDo(seat, "rally_supporters")) {
