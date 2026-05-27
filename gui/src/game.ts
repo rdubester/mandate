@@ -1,4 +1,4 @@
-import type { Game, Move, AiEnumerate } from "boardgame.io";
+import type { Game, Move } from "boardgame.io";
 import { INVALID_MOVE } from "boardgame.io/core";
 import {
   CONFIG,
@@ -13,8 +13,18 @@ import {
   type SeatId,
   type Matchup,
   type DeckKind,
-  type Op,
 } from "./config";
+import {
+  applyOps,
+  matches,
+  seededShuffle,
+  refillIfEmpty,
+  label,
+  fireVerb as infraFireVerb,
+  previewVerb as infraPreviewVerb,
+  type VerbEvent,
+} from "./engine-infra";
+import { enumerateMoves } from "./ai";
 
 // G — the shared game state. boardgame.io uses immer; mutate in place.
 
@@ -54,6 +64,10 @@ export interface GameState {
   log: string[];
 }
 
+// VerbEvent lives in engine-infra.ts (shared by applyOps/freshEvent/fireVerb). Re-export it
+// so existing consumers of the rules module keep resolving it from "./game".
+export type { VerbEvent };
+
 // ---- helpers ---------------------------------------------------------------
 
 function emptyPlayer(faction: FactionId): PlayerState {
@@ -77,13 +91,6 @@ function factionOf(G: GameState, seat: string): FactionId {
   return G.players[seat as SeatId].faction;
 }
 
-// Short log label for a seat ("white" / "red"), derived from its faction's name. When two
-// seats share a faction (a mirror) the seat id disambiguates the two same-coloured players.
-function label(G: GameState, seat: string): string {
-  const name = FACTIONS[factionOf(G, seat)].name.split(" ")[0].toLowerCase();
-  return `${name}#${seat}`;
-}
-
 // Total supporters on a decree, summed across all seats. Exported for the UI / bots.
 export function supportOn(G: GameState, id: string): number {
   const owners = G.support[id];
@@ -93,51 +100,11 @@ export function supportOn(G: GameState, id: string): number {
   return t;
 }
 
-// ---- the verb event + decree chain -----------------------------------------
-// A verb seeds a flat, MUTABLE event with its base parameters, then passes it through the
-// chain of every in-play decree. Each decree reaches in and tinkers (via a tiny op DSL)
-// until the final event comes out the other side; the verb then executes the result. A
-// decree's behaviour is a list of typed ops on event fields, so a NEW kind of effect is a
-// new DATA row, not engine work. The op vocabulary is deliberately small — its ceiling IS
-// the complexity budget: if a decree can't be said in a few ops, it's too complex for a card.
-
-// Flat fields a decree may touch. (Add a field here to widen the surface; it's then
-// reachable by every op at once.)
-export interface VerbEvent {
-  verb: string;
-  detail: Record<string, string>;
-  cost: number; // zealot cost (strikes)
-  yieldN: number; // units produced (rally/muster)
-  draws: number; // cards drawn
-  allocK: number; // supporters placeable this allocate
-  mandate: number; // Mandate the actor scores (strike)
-  knockback: number; // Mandate knocked off the opponent (Mandate-strike)
-  supportStrip: number; // supporters a strike strips before removing a decree
-  cancelled: boolean; // a decree may veto the verb's main effect entirely
-}
-
-// The op DSL interpreter: each op reaches into a VerbEvent field. add/mul are numeric; set
-// assigns (number, or the boolean `cancelled`). The Op type (config.ts) keeps add/mul to
-// numeric fields and the boolean to set, so a nonsense op like mul-on-cancelled won't type.
-function applyOps(ev: VerbEvent, ops: Op[] | undefined): void {
-  if (!ops) return;
-  for (const o of ops) {
-    if (o.op === "add") ev[o.path] += o.n;
-    else if (o.op === "mul") ev[o.path] *= o.n;
-    else if (o.path === "cancelled") ev.cancelled = o.v;
-    else ev[o.path] = o.v;
-  }
-}
-
-function matches(
-  trigger: { on: string; detail?: Record<string, string> },
-  verb: string,
-  detail: Record<string, string>,
-): boolean {
-  if (trigger.on !== verb) return false;
-  if (!trigger.detail) return true;
-  return Object.entries(trigger.detail).every(([k, v]) => detail[k] === v);
-}
+// ---- the decree chain ------------------------------------------------------
+// A verb seeds a flat, mutable event (freshEvent, in engine-infra) and passes it through the
+// chain of every in-play decree. The chain — the decree bite/score/compliance SEMANTICS — is
+// the RULE, so it lives here. fireVerb/previewVerb (engine-infra) are thin arg-plumbing
+// combinators that bind this chain; the local wrappers below keep their original signatures.
 
 // Compliance: the acting player chooses whether to take each offered rider. The choice is
 // made UP FRONT as part of the move (the `decline` set names the decree ids whose riders to
@@ -145,52 +112,6 @@ function matches(
 // mid-action interrupt. Default (empty decline set) = greedy accept.
 function wantsRider(decreeId: string, decline: Set<string>): boolean {
   return !decline.has(decreeId);
-}
-
-function freshEvent(
-  verb: string,
-  base: Partial<VerbEvent>,
-  detail: Record<string, string>,
-): VerbEvent {
-  return {
-    verb,
-    detail,
-    cost: 0,
-    yieldN: 0,
-    draws: 0,
-    allocK: 0,
-    mandate: 0,
-    knockback: 0,
-    supportStrip: 0,
-    cancelled: false,
-    ...base,
-  };
-}
-
-// Seed an event with its base parameters and run the full decree chain (WITH supporter
-// scoring payouts). This is what the actual moves call. `decline` = decree ids whose riders
-// the acting player refuses this action (default: accept all).
-function fireVerb(
-  G: GameState,
-  verb: string,
-  seat: SeatId,
-  base: Partial<VerbEvent> = {},
-  detail: Record<string, string> = {},
-  decline: Set<string> = new Set(),
-): VerbEvent {
-  return runDecreeChain(G, freshEvent(verb, base, detail), seat, true, decline);
-}
-
-// Pure preview: run the ops chain to see the resulting event WITHOUT scoring/logging side
-// effects (for Board affordability + legal-action gating). Same op pipeline, scoring off.
-function previewVerb(
-  G: GameState,
-  verb: string,
-  base: Partial<VerbEvent> = {},
-  detail: Record<string, string> = {},
-): VerbEvent {
-  // Seat is irrelevant in preview (scoring=false → no payouts, no log); pass the first seat.
-  return runDecreeChain(G, freshEvent(verb, base, detail), SEATS[0], false, new Set());
 }
 
 // Pass the event through every in-play decree that matches its verb/detail. Each decree may
@@ -238,25 +159,32 @@ function runDecreeChain(
   return ev;
 }
 
+// Bind the (rules) decree chain into the (infra) combinators, preserving the original
+// signatures so the moves below read unchanged.
+function fireVerb(
+  G: GameState,
+  verb: string,
+  seat: SeatId,
+  base: Partial<VerbEvent> = {},
+  detail: Record<string, string> = {},
+  decline: Set<string> = new Set(),
+): VerbEvent {
+  return infraFireVerb(runDecreeChain, G, verb, seat, base, detail, decline);
+}
+
+function previewVerb(
+  G: GameState,
+  verb: string,
+  base: Partial<VerbEvent> = {},
+  detail: Record<string, string> = {},
+): VerbEvent {
+  return infraPreviewVerb(runDecreeChain, SEATS[0], G, verb, base, detail);
+}
+
 // The draw + discard arrays a deck kind resolves to (null = not modelled yet, e.g. research).
 // When Blue lands, "research" returns {deck: G.researchDeck, discard: G.researchDiscard}.
 function deckFor(G: GameState, kind: DeckKind): { deck: string[]; discard: string[] } | null {
   return kind === "decree" ? { deck: G.decreeDeck, discard: G.decreeDiscard } : null;
-}
-
-// deplete→refill: if the draw deck is empty, shuffle the discard back into it (in place, so
-// the change sticks on G). Shared by every shared deck. Uses boardgame.io's RNG via the move
-// context? No — we shuffle with a local PRNG seeded off current contents for determinism in
-// replay; order is hidden info anyway (the sim re-determinizes it for bots).
-function refillIfEmpty(deck: string[], discard: string[]): void {
-  if (deck.length > 0 || discard.length === 0) return;
-  // Fisher–Yates on the discard, then move it into the deck (both in place).
-  for (let i = discard.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [discard[i], discard[j]] = [discard[j], discard[i]];
-  }
-  deck.push(...discard);
-  discard.length = 0;
 }
 
 // Centralized draw from a SHARED deck: fires the on-draw hook per base card so 'when a
@@ -498,18 +426,6 @@ const drawUpkeep: Move<GameState> = ({ G, playerID, events }, decline: string[] 
 
 // ---- game ------------------------------------------------------------------
 
-// Tiny seedable PRNG so the deck shuffle is deterministic per match.
-function seededShuffle<T>(arr: T[], seed: number): T[] {
-  const a = arr.slice();
-  let s = seed >>> 0 || 1;
-  for (let i = a.length - 1; i > 0; i--) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    const j = s % (i + 1);
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 export const MandateGame: Game<GameState> = {
   name: "the-mandate",
 
@@ -606,74 +522,12 @@ export const MandateGame: Game<GameState> = {
   },
 
   // For boardgame.io's bots (RandomBot / MCTSBot): every concrete legal move from a state.
-  // Kept small so MCTS's branching factor stays tractable — notably allocate_supporters is
-  // enumerated as "all K onto ONE decree" (one option per in-play decree) rather than every
-  // distribution, which is the strategically meaningful choice without combinatorial blowup.
+  // The enumerator lives in ai.ts (used only by bots); wired here as a runtime call.
   ai: {
     enumerate: (G, ctx) => enumerateMoves(G, ctx),
   },
 };
 
-// Which stage the active seat is in (boardgame.io tracks it in ctx.activePlayers).
-function stageOf(ctx: { currentPlayer: string; activePlayers?: Record<string, string> | null }): string {
-  return ctx.activePlayers?.[ctx.currentPlayer] ?? "main";
-}
-
-function enumerateMoves(
-  G: GameState,
-  ctx: { currentPlayer: string; activePlayers?: Record<string, string> | null },
-): AiEnumerate {
-  const out: AiEnumerate = [];
-  const seat = ctx.currentPlayer as SeatId;
-  const faction = factionOf(G, seat);
-  const p = G.players[seat];
-
-  // UPKEEP stage: the only move is drawUpkeep. Fork it over the power set of in-play upkeep
-  // decrees that offer a rider — one option per take/decline combination (small: 0-1 such
-  // decrees today → 1-2 options). The decline arg lists the ids whose riders to refuse.
-  if (stageOf(ctx) === "upkeep") {
-    const upkeepRiders = G.decreesInPlay.filter(
-      (id) => DECREES[id]?.trigger.on === "upkeep" && DECREES[id]?.rider,
-    );
-    const uniq = [...new Set(upkeepRiders)];
-    const combos = 1 << uniq.length; // power set
-    for (let mask = 0; mask < combos; mask++) {
-      const declined = uniq.filter((_, i) => mask & (1 << i));
-      out.push({ move: "drawUpkeep", args: [declined] });
-    }
-    return out;
-  }
-
-  // MAIN stage: the action moves.
-  // enact_decree: one option per distinct card in hand the seat could enact.
-  if (canDo(faction, "enact_decree")) {
-    for (const id of new Set(p.hand)) out.push({ move: "enactDecree", args: [id] });
-  }
-  // allocate_supporters: all-K-onto-one-decree, one option per in-play decree that has room
-  // under the support cap (else the move would be a rejected no-op). Capped at remaining room.
-  if (canDo(faction, "allocate_supporters") && p.supporters > 0) {
-    const k = CONFIG.supporter_allocate_k;
-    const cap = CONFIG.supporter_cap_per_decree;
-    for (const id of G.decreesInPlay) {
-      const room = cap - supportOn(G, id);
-      if (room > 0) out.push({ move: "allocateSupporters", args: [Array(Math.min(k, room)).fill(id)] });
-    }
-  }
-  if (canDo(faction, "deliberate") && (G.decreeDeck.length > 0 || G.decreeDiscard.length > 0))
-    out.push({ move: "deliberate" });
-  if (canDo(faction, "rally_supporters")) out.push({ move: "rallySupporters" });
-  if (canDo(faction, "muster_zealots")) out.push({ move: "musterZealots" });
-  // strike: Mandate, or any decree on the table — each gated by its OWN cost.
-  if (canDo(faction, "strike")) {
-    if (p.zealots >= strikeCost(G)) out.push({ move: "strikeMandate" });
-    if (p.zealots >= decreeStrikeCost(G)) {
-      for (const id of new Set(G.decreesInPlay)) out.push({ move: "strikeDecree", args: [id] });
-    }
-  }
-  // Always allow ending the turn (lets a bot pass rather than be forced into a bad move).
-  if (out.length === 0) out.push({ event: "endTurn" });
-  return out;
-}
-
-// Re-exported for the board UI (preview strike cost / availability / support totals).
-export { strikeCost, decreeStrikeCost, canDo, verbsFor };
+// Re-exported for the board UI (preview strike cost / availability / support totals) and for
+// ai.ts (the move enumerator reads strikeCost/decreeStrikeCost/factionOf rule helpers).
+export { strikeCost, decreeStrikeCost, factionOf, canDo, verbsFor };
