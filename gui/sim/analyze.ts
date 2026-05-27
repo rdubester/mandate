@@ -24,7 +24,8 @@ type Kind =
   | "enact" | "support" | "rally" | "muster" | "deliberate"
   | "strikeMandate" | "strikeDecree";
 function classify(line: string): { who: FactionId; kind: Kind } | null {
-  const who: FactionId | null = line.startsWith("white ") ? WHITE : line.startsWith("red ") ? RED : null;
+  // Log lines are prefixed by label() = "<faction>#<seat>" (e.g. "white#0 enacts decree…").
+  const who: FactionId | null = line.startsWith("white#") ? WHITE : line.startsWith("red#") ? RED : null;
   if (!who) return null;
   if (line.includes("enacts decree")) return { who, kind: "enact" };
   if (line.includes("supports")) return { who, kind: "support" };

@@ -104,6 +104,26 @@ function makeRng(seed?: number): () => number {
 
 // Build a determinizing MCTSBot class for a given game. Factory (takes `game`) so this module
 // has no load-time dependency on game.ts's MandateGame (which imports enumerateMoves from here).
+// MCTSBot values a move ONLY by win/loss unless given `objectives`. With none, a near-certain
+// loser sees every move as equally doomed and plays ~random — flailing (e.g. Red wasting actions
+// on useless rallies) AND making "is the game close?" unmeasurable. We give a GRADED Mandate
+// objective: a staircase of thresholds (each a fraction of target) the searching seat scores by
+// reaching, weighted well below a win. So even a losing bot climbs its own score — it plays to
+// keep it close instead of throwing. (MCTS short-circuits a playout at the first met objective,
+// returning the summed weight; thresholds fire only on real progress, not from turn 1.)
+function mandateObjectives(seat: string) {
+  const target = CONFIG.mandate_target;
+  const steps = [0.25, 0.5, 0.75]; // climb at quarter / half / three-quarter target
+  const obj: Record<string, { checker: (G: GameState) => boolean; weight: number }> = {};
+  for (const frac of steps) {
+    obj[`mandate_${frac}`] = {
+      checker: (G: GameState) => (G.mandate[seat as SeatId] ?? 0) >= target * frac,
+      weight: frac * 0.5, // sum maxes at ~0.75 — below a win (1), so winning still dominates
+    };
+  }
+  return obj;
+}
+
 export function makeMCTSBot(
   game: Game<GameState>,
   opts: { iterations?: number; playoutDepth?: number; seed?: number } = {},
@@ -113,7 +133,15 @@ export function makeMCTSBot(
   return class DeterminizingBot extends MCTSBot {
     private rng = makeRng(opts.seed);
     constructor(botOpts: Record<string, unknown>) {
-      super({ ...botOpts, game, enumerate: game.ai!.enumerate, iterations, playoutDepth } as never);
+      super({
+        ...botOpts,
+        game,
+        enumerate: game.ai!.enumerate,
+        iterations,
+        playoutDepth,
+        // The searching seat is ctx.currentPlayer; reward ITS Mandate progress.
+        objectives: (_G: GameState, ctx: { currentPlayer: string }) => mandateObjectives(ctx.currentPlayer),
+      } as never);
     }
     async play(state: Parameters<MCTSBot["play"]>[0], playerID: string) {
       return super.play(determinize(state as { G: GameState }, this.rng) as typeof state, playerID);
