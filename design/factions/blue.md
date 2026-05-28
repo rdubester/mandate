@@ -3,8 +3,8 @@
 Status: **design only — nothing here is implemented yet.** Blue lands fourth in the build
 order (after Green). These notes capture where the Blue design has settled so far, so the
 eventual implementation and the other docs have one place to point at. Colour philosophy and
-creed: see `../philosophy.md` (Blue seeks perfection through knowledge; legitimacy from
-competence).
+creed: see `../philosophy.md` (Blue seeks perfection through knowledge; governing is done
+best by whoever understands the system most deeply).
 
 ## Core identity
 
@@ -85,15 +85,15 @@ Centre perks are never lent out: **score + Archive ride Blue's seat, not the car
   Distinct from Green's sustained action economy: engine vs burst.
 - **Engine cards** — draw/cycle/acquire; mostly Blue-valuable, low burn values. These are
   the cards a raider wouldn't bother stealing — by design.
-- **Not Blue:** destroying permanents (Red), holding or stealing units (Black/Red — Blue's
-  only unit interaction is denial via the shared exchange verb, zealots → supporters, never
-  taking control), anything instant-speed.
+- **Not Blue:** destroying permanents (Red), holding or stealing units (Black/Red — Blue may
+  occasionally touch units via the shared exchange verb, e.g. converting zealots down into
+  supporters, but never controls them), anything instant-speed.
 
 ## Sim checks for when Blue lands
 
 - Does Blue's win rate actually depend on live compounding (vs. Red just borrowing its
   cards)? If borrowing performs as well as owning, the Archive isn't earning its complexity.
-- Does the zealots→supporters denial line earn its keep — does a Blue policy that converts
+- Does the zealots→supporters conversion line earn its keep — does a Blue policy that converts
   down outperform one that doesn't, *specifically when Red is strong*? Yes ⇒ the wheel's
   threat asymmetry is doing real work; no ⇒ Red's pressure on Blue is mistuned.
 - **The Paper Mill** (draw from commons → publish straight back, never build an engine)

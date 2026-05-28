@@ -168,9 +168,9 @@ What falls out of the geometry (not assigned):
 
 - **White is structurally non-militant.** The zealot verb is tagged {B,R,G} — no W. Pacifism
   is a gap in the verb tags, not a rule on White's card.
-- **Blue mints and holds no units** — U appears in neither unit primitive. Its only intended
-  contact with the unit economy is *denial* via the exchange (zealots → supporters, never
-  taking control of what it converts); the exchange verb's exact shape is open (see below).
+- **Blue mints and holds no units** — U appears in neither unit primitive. Its play may touch
+  the unit economy through the exchange (e.g. converting zealots down into supporters), but it
+  never controls units directly; the exchange verb's exact shape is open (see below).
 - **Red and Green are the units pair**: both reach both unit primitives. The difference is the
   *sinks* — Red holds the sink that turns flow into damage (`strike`); Green holds the sink
   that turns stock into points (`procession`), plus decree access. Access can overlap; what
@@ -204,8 +204,8 @@ the mirror pair across the Black hinge.
 authored once, valenced by who holds them — over bespoke per-colour abilities. The exemplar is
 the exchange's `convert` (one verb, one implementation) whose direction of use flips by
 colour: Black converts whichever way pays (the broker skims the spread); Blue only ever wants
-zealots → supporters (disarm the table — denial, never control); Red wants the reverse
-(arm/radicalise the table). Three play-feels, zero extra code. Reach for this shape before
+zealots → supporters (cooling the table down, without ever holding the units itself); Red
+wants the reverse (arm/radicalise the table). Three play-feels, zero extra code. Reach for this shape before
 authoring a bespoke per-colour ability. (The verb's exact operationalisation — whose
 resources, held where, at what cost — is the highest-priority open design item.)
 
@@ -243,8 +243,8 @@ DECREES{}: standing rules that hook the verb pipeline (trigger / effect / rider 
 ## Open / deliberately deferred
 
 - **`procure/convert` (the exchange):** whose resources it converts, held where, at what
-  cost — the highest-priority unresolved verb (it underpins Black's whole kit, Blue's denial
-  play, and Red's card access).
+  cost — the highest-priority unresolved verb (it underpins Black's whole kit, Blue's
+  zealot-cooling play, and Red's card access).
 - **Player count:** five is the design north star; smaller tables are tuning instruments. How
   much standalone tuning sub-5 counts deserve is open.
 - **Game length:** the prototype targets short games for search/iteration tractability — an
@@ -253,8 +253,8 @@ DECREES{}: standing rules that hook the verb pipeline (trigger / effect / rider 
   open.
 - **Black:** exact conversion set, circulation rate, and what it refuses (see
   `philosophy.md`).
-- **Green:** identity (slow inevitability vs accelerating revival), sanctuary rules (likely
-  cut), procession shape.
+- **Green:** procession shape and pacing (Green compounds late but gently — see the
+  score-curve targets in `philosophy.md`); sanctuary rules (likely cut).
 - **Blue:** publish-action shape, Archive/commons card list, and its counterplay surface (how
   enemy pressure reaches the engine at all).
 - **Red:** combat-resolution detail beyond strip-and-remove.

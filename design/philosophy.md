@@ -14,18 +14,19 @@ failure modes below are taken from it and projected into the domain of governanc
 ## The thesis
 
 **The Mandate is a game about modes of governance and the philosophies that generate them.**
-Five factions each embody a different answer to "where does the right to rule come from" —
-procedure, expertise, money, force, faith. They race to prove their answer on a single shared
-track: the Mandate is not a throne to sit on but a claim to vindicate, and each faction can
-only vindicate it *its own way*.
+Five factions each embody a different claim about what makes governance *effective* —
+procedure, expertise, the exchange, decisive action, tradition. The shared Mandate track is
+the proving ground: it measures demonstrated effectiveness, and each faction can only
+demonstrate it *its own way*. You don't argue that your philosophy is right; you govern by
+it, in front of everyone, and win because it worked.
 
 The game rewards two things:
 
-- **Acting in alignment with your faction's values.** You score only by doing your philosophy
-  (scoring rides each colour's centre and is never lent out). Off-colour play is always
-  instrumental — a means, never the end.
+- **Acting in alignment with your faction's values.** Scoring rides each colour's centre and
+  is never lent out — the only path to victory is demonstrating, in play, that your mode of
+  governance out-governs the rest of the table.
 - **Adaptability.** The wheel hands every faction tools borrowed from its neighbours, and the
-  matchup decides which to lean on. *Adapt your means; never abandon your ends.*
+  matchup decides which to lean on (the lean principle, below).
 
 A third pillar — **rewarding cooperation** (temporary alignment, bargains, compliance traded
 for benefit) — is a direction the design should grow toward, not something current mechanics
@@ -51,86 +52,97 @@ question first:
 
 Adjacent colours are allies because they **share a value**; opposite colours are enemies
 because they **disagree about something fundamental** — and each side has its own name for
-that disagreement. The factions of The Mandate are these five philosophies given institutions:
-each colour's **creed** below is its answer to "where does the right to rule come from."
+that disagreement. The factions of The Mandate are these five philosophies given
+institutions: each colour's **creed** below is its claim about how governance actually works
+best, and its scoring rule is how it *demonstrates* that claim at the table.
 
 ## The five philosophies
 
 ### White — The Assembly
-- **Colour:** seeks *peace*, through *order*. Suffering is solved by coordination, cooperation,
-  rules, and restraint.
-- **Creed:** the right to rule comes from rules rightly made — power is legitimate when it is
-  procedural, codified, and consented to.
-- **Refuses:** force. White cannot raise zealots — its pacifism is not a rule printed on the
-  faction, it is a gap in what the colour can reach. Its only army is the public.
-- **Scores:** *the law having force.* White earns the Mandate when the rules it backed operate.
-  And because enacting and then backing a decree consumes White's whole turn, a decree only
-  ever pays after surviving everyone else's — White profits exactly when the rest of the table
-  can't, or won't, tear its order down. Order that persists is order that is legitimate.
+- **Colour:** seeks *peace*, through *order*. Suffering is solved by coordination,
+  cooperation, rules, and restraint.
+- **Creed:** the most effective governance is settled rules — order codified, consented to,
+  and left standing long enough to work.
+- **Refuses:** force, and the market. White can neither raise zealots nor touch the exchange —
+  order is not imposed at gunpoint and it is not for sale. Both refusals are gaps in the verb
+  tags, not rules printed on the faction. Its only army is the public.
+- **Scores:** *the structure, working.* Peace-through-order cashes out as persistent
+  structure that binds the table — decrees, backed by White's public — and the points accrue
+  steadily while that structure stands and operates: a running demonstration that the order
+  is delivering what it promised. Because enacting and then backing a decree consumes White's
+  whole turn, a decree only ever pays after surviving everyone else's — the demonstration
+  counts only if the order actually holds.
 - **At the table:** build the scaffolding others must live inside; commit your base to the
   platforms that matter; entrench. White doesn't act for points — its choices pay off on
   everyone else's turn.
 
 ### Blue — The Institute
-- **Colour:** seeks *perfection*, through *knowledge*. Things could be almost arbitrarily good
-  if we figured out the truth and applied it fully.
-- **Creed:** the right to rule comes from competence — governing is a hard problem, and
-  legitimacy belongs to those who have done the work to solve it.
-- **Refuses:** to command anyone. Blue raises no units and keeps no flock or army; when it
-  touches the unit economy at all it is to *deny* — turning zealots back into mere supporters —
-  never to control.
-- **Scores:** *publication.* Knowledge hoarded is potential; knowledge published is power.
-  Every point is a finding surrendered to the commons — Blue is never paid for merely
-  interacting, and its claim to rule is exactly the body of work it can show.
+- **Colour:** seeks *perfection*, through *knowledge*. Things could be almost arbitrarily
+  good if we figured out the truth and applied it fully.
+- **Creed:** governing is a hard problem, done best by whoever understands the system most
+  deeply.
+- **Refuses:** to command anyone. Blue raises no units and keeps no flock or army; its play
+  may occasionally touch the unit economy, but it never controls units directly.
+- **Scores:** *the engine, perfected.* Blue spends the game understanding — curating,
+  refining, tuning its engine toward perfection — and then demonstrates that perfection by
+  churning through cards and converting them into score at a rate nothing else on the table
+  can match. ("Publication" is the costume this wears; the concept underneath is the
+  perfected engine, shown off.)
 - **At the table:** behind all game while it curates, then it pops off. The defining decision
-  is when to stop compounding and start publishing.
+  is when to stop perfecting and start demonstrating.
 
 ### Black — The Ledger *(working name)*
 - **Colour:** seeks *satisfaction*, through *ruthlessness* — amoral rather than immoral; it
   recognises no limit on the pursuit except its own interest.
-- **Creed:** the right to rule is a price like any other. Power flows to whoever stands at the
-  point of exchange; principles are positions, and positions can be liquidated.
+- **Creed:** governance is not a special domain. What the others call politics — structures,
+  crowds, causes — Black sees as features of the landscape: flows it can stand in the middle
+  of.
 - **Refuses:** nothing on principle, which is its principle. It mints no substrate of its own
-  and believes in nothing it can't trade. (See Open directions — a faction defined by refusing
-  nothing still needs something it *won't* do to be playable as a character.)
-- **Scores:** *circulation.* The house takes its cut whenever value changes form or hands.
-  Black doesn't need to win the war — it needs the war to keep happening.
-- **At the table:** the fixed point of the wheel. It brokers between everyone else's economies
-  and is the only faction whose engine is the other players' activity. Build last; its kit is
-  defined by the other four.
+  and believes in nothing it can't trade. (See Open directions — a faction defined by
+  refusing nothing still needs something it *won't* do to be playable as a character.)
+- **Scores:** *the lens, vindicated.* The house takes its cut whenever value changes form or
+  hands, and Black demonstrates its worldview by outscoring the table purely on the
+  exchange — never building, never ruling, never needing to.
+- **At the table:** the fixed point of the wheel. It brokers between everyone else's
+  economies and is the only faction whose engine is the other players' activity. Build last;
+  its kit is defined by the other four.
 
 ### Red — The Vanguard
 - **Colour:** seeks *freedom*, through *action* — living in the moment, following the thread
   of aliveness and conviction.
-- **Creed:** the right to rule belongs to those willing to act — decisively, now. Deliberation
-  is what losers do while losing. (The Vanguard is the revolutionary men-of-action, not the
+- **Creed:** effective governance is the capacity to act — decisively, now. Deliberation is
+  what losers do while losing. (The Vanguard is the revolutionary men-of-action, not the
   professional general staff — that is what keeps an army red rather than white.)
-- **Values:** momentum, conviction, spare capacity. Freedom *is* having actions to spare, and
-  when Red is unpressured it converts that freedom directly into its claim.
-- **Refuses:** patience and paperwork. Red cannot legislate and cannot sit in the library —
-  cards reach its hand only through the market, never the long way.
-- **Scores:** *strikes landed.* Force demonstrated is legitimacy claimed.
-- **At the table:** every turn is a read of the threat landscape — answer the board (tear down
-  the order being built around you, deny the resources that will be spent against you) or
-  advance your own claim. Red is fun exactly in proportion to how rich that choice is; if its
-  play ever collapses into "mint a zealot, spend a zealot," the threat landscape is too thin —
-  a design alarm, not a Red problem.
+- **Values:** momentum, conviction, spare capacity. Freedom *is* having actions to spare.
+- **Refuses:** patience and paperwork. Red cannot legislate and it cannot study — when Red
+  wants a tool it doesn't research one, it goes and gets one off the market.
+- **Scores:** *freedom, demonstrated.* Red wants spare capacity and wins it through tactics,
+  tempo, and control of the board's threats; whenever it actually has that freedom, it proves
+  it by converting spare actions directly into score — strikes landed on the Mandate.
+- **At the table:** every turn is a read of the threat landscape — answer the board (tear
+  down the order being built around you, deny the resources that will be spent against you)
+  or advance your own claim. Red is fun exactly in proportion to how rich that choice is; if
+  its play ever collapses into "mint a zealot, spend a zealot," the threat landscape is too
+  thin — a design alarm, not a Red problem.
 
 ### Green — The Orthodoxy
 - **Colour:** seeks *harmony*, through *acceptance*. Most damage comes from stepping outside
-  one's natural role and fixing what isn't broken; the established wisdom exists for a reason.
-- **Creed:** the right to rule is inherited, not won — continuity with something older and
-  larger than any administration: the faith, the land, the congregation.
-- **Refuses:** novelty. Green touches neither research nor the market — the two modern
-  substrates are precisely what it defines itself against.
-- **Scores:** *procession.* Devotion accumulated quietly, then made visible in the streets —
-  the claim is the turnout.
-- **At the table:** the least-resolved faction, held lightly on purpose. The identity question
-  its build must settle: is Green a **slow inevitability** (stock that wants a stable,
-  lengthening game) or an **accelerating revival** (congregation begets congregation — an
-  action-economy snowball)? Both fit the institution; the colour's own philosophy — acceptance,
-  equilibrium, suspicion of forced change — leans toward the former. Pick deliberately rather
-  than drifting into one.
+  one's natural role and fixing what isn't broken; the established wisdom exists for a
+  reason.
+- **Creed:** the most effective governance is the one that has already survived — what lasts,
+  works.
+- **Refuses:** the market and the library. The market for the same reason White does — what
+  Green keeps is sacred, not stock; the library out of a broad scepticism of optimisation and
+  tricks.
+- **Scores:** *harmony, demonstrated.* Green accepts the threats it cannot answer and plays
+  the long game around them — growing its base in step with the table rather than against
+  it: never the biggest threat, never the most exposed, resilient enough that what does land
+  lands blunted. The procession is the demonstration: the mass it has quietly grown,
+  converted into score.
+- **At the table:** Green compounds through continuity — most of its points arrive late, on a
+  curve like Blue's but gentler (it has no ambition to go vertical; it is trying to be
+  impossible to stop). Its base is also its buffer: the same mass that becomes points is what
+  makes attacking it unrewarding.
 
 ### When a colour overbalances
 
@@ -140,18 +152,19 @@ faction's counterplay (the experience opponents need real tools to escape):
 | colour | overbalanced, the game feels like… |
 |---|---|
 | White | ossification — the rules pile up until nothing can move |
-| Blue | a private optimization the rest of the table is merely watching |
+| Blue | the table stops mattering — Blue is playing only its own game, and you are watching |
 | Black | a wildfire — everything consumed as fast as it appears, sowing its own suffocation |
 | Red | no ground to stand on — nothing survives long enough to plan around |
-| Green | a flattening — distinctions stop mattering, the mass simply grows |
+| Green | actions stop mattering — nothing you do has any effect; the mass simply grows |
 
 ## The shape of the five answers
 
 Two axes organise the four cardinal factions; Black sits off both (the wheel's fixed point):
 
-- **How you score:** via *action* (Blue publishes, Red strikes — the scoring event is something
-  you do) versus via *protected accumulated state* (White's backed decrees, Green's grown
-  flock — scoring rides board state you built and must defend).
+- **How you score:** via *action* (Blue churns its engine through cards, Red spends its spare
+  actions — the scoring event is something you do) versus via *protected accumulated state*
+  (White's standing structure, Green's grown base — scoring rides board state you built and
+  must defend).
 - **How you grow:** *gradual optimization that accelerates late* (Blue's archive, Green's
   flock — engines that compound) versus *linear scoring through control of the shared board*
   (White's standing rules, Red's strikes — pressure applied steadily across the whole game).
@@ -161,8 +174,13 @@ Two axes organise the four cardinal factions; Black sits off both (the wheel's f
 | **scores via accumulated state** | Green | White |
 | **scores via action** | Blue | Red |
 
-Black scores on neither schedule: circulation — a cut of throughput — runs only as fast as the
-rest of the table runs.
+The intended *cumulative score curves* sharpen the same picture: **Red** is the most linear —
+left unpressured it scores about the same every turn. **White** is roughly polynomial — it
+adds decrees over time, each contributing steadily for as long as it stands. **Green** is
+right-shifted — most of its points arrive late, a smooth ramp somewhere between White and
+Blue (compounding through continuity, never going vertical). **Blue** is the true
+exponential, popping off in the endgame. **Black** has no curve of its own: circulation
+tracks the table's total throughput.
 
 ## The ten edges
 
@@ -200,10 +218,11 @@ verb-tagging rule:
 Each side has its own name for the war; the game endorses neither.
 
 - **W–R: order vs freedom** *(White: order vs chaos; Red: freedom vs constraint; meet on G's
-  primitive — both court the same crowd).* Structure versus flexibility: the Assembly writes
+  turf — the same crowd, claimed two ways).* Structure versus flexibility: the Assembly writes
   restraints, and the Vanguard experiences every restraint as a target. The live heart of the
   prototype: strikes tear at decrees and the support behind them; decrees tax strikes and
-  musters; both sides rally the same supporters for opposite ends.
+  musters; and the populace itself is contested — White courts it as supporters, Red drafts
+  it as zealots.
 - **W–B: the group vs the individual** *(White: good vs evil; Black: individualism vs
   codependency; meet on U's primitive — both do their reading).* Does the individual exist to
   serve the group, or the group to serve the individual? In governance terms: the State vs the
@@ -268,7 +287,6 @@ the first question is whether the losing side's leans exist and are strong enoug
 - **The politics of a full table.** A shared first-past-the-post race with cheap interaction
   invites bash-the-leader and kingmaking. Decide the stance — lean into open politics, or
   dampen it structurally — before the player count grows past two.
-- **Green's identity:** slow inevitability vs accelerating revival (see Green above).
 - **What Black refuses.** Every other philosophy is partly defined by what it won't do;
   "refuses nothing" is a clean creed but a thin play identity.
 - **Setting & flavour.** Deferred. The earlier decaying-autocracy/Gormenghast register is

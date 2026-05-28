@@ -12,7 +12,7 @@ Decree scoring specifically: **`enact_decree` is SHARED {W,U,G}, not White's sig
 
 ## The design frame (read before designing anything)
 
-The game is a deliberate attempt to build **the playable version of Duncan Sabien's essay "The MTG Color Wheel"** (linked from `design/philosophy.md`): each faction is one colour's philosophy — peace through order, perfection through knowledge, satisfaction through ruthlessness, freedom through action, harmony through acceptance — given an institution and a theory of where the right to rule comes from. `design/philosophy.md` carries that frame (the thesis, the five creeds, the ten edges, the overbalance failure modes, the lean principle). When proposing or changing mechanics, derive the justification from those philosophies and edges; don't improvise new theme or hand-wave a flavour rationale. If a proposed mechanic can't be tied to a colour philosophy or an edge, say so explicitly rather than inventing a justification.
+The game is a deliberate attempt to build **the playable version of Duncan Sabien's essay "The MTG Color Wheel"** (linked from `design/philosophy.md`): each faction is one colour's philosophy — peace through order, perfection through knowledge, satisfaction through ruthlessness, freedom through action, harmony through acceptance — given an institution and a claim about what makes governance effective. `design/philosophy.md` carries that frame (the thesis, the five creeds, the ten edges, the overbalance failure modes, the lean principle). When proposing or changing mechanics, derive the justification from those philosophies and edges; don't improvise new theme or hand-wave a flavour rationale. If a proposed mechanic can't be tied to a colour philosophy or an edge, say so explicitly rather than inventing a justification.
 
 ## Design-doc discipline
 
@@ -58,7 +58,7 @@ Flag these if the user's request implicitly picks an answer:
 - **The exchange verb (`procure/convert`).** Whose resources it converts, held where, at what cost — the highest-priority unresolved verb.
 - **Player count.** Five is the design north star; smaller tables are tuning instruments. How much standalone tuning sub-5 counts get is open.
 - Black's exact conversion set, throughput rate, and what it refuses.
-- Red combat-resolution detail; Green's identity (slow inevitability vs accelerating revival) and sanctuary rules (likely cut); Blue's exact card list and publish-action shape. (Blue's mechanics — shared research commons, private Archive, publish-for-points — are sketched in `design/factions/blue.md`.)
+- Red combat-resolution detail; green sanctuary rules (likely cut); Blue's exact card list and publish-action shape. (Blue's mechanics — shared research commons, private Archive, publish-for-points — are sketched in `design/factions/blue.md`.)
 
 ## Naming
 
