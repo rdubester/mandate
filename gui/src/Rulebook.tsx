@@ -188,7 +188,7 @@ export function Rulebook() {
           <li>Green's procession (units → Mandate); the supporter/zealot spring.</li>
           <li>Black's Convert + throughput scoring.</li>
           <li>Smarter compliance (riders are auto-accepted; hook: <code>wantsRider</code>).</li>
-          <li>Cross-shard wing tools (see <code>design/matchups.md</code>).</li>
+          <li>Cross-shard wing tools (see <code>design/philosophy.md</code>, the lean principle).</li>
         </ul>
       </section>
     </div>

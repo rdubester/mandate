@@ -4,11 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-Active prototype. There is **one engine: the TypeScript / boardgame.io app in `gui/`** (the Python prototype that came first has been deleted). The design source of truth is `design/core-model.md`; per-faction notes live in `design/factions/`, matchup dynamics in `design/matchups.md`, tuning results in `design/balance-notes.md`, and the original brief is archived at `design/history/the-mandate-design-brief.md` (historical — don't build from it). When asked to "build" or change rules, edit `gui/src/config.ts` (data) and `gui/src/game.ts` (logic); see `README.md` for the file map.
+Active prototype. There is **one engine: the TypeScript / boardgame.io app in `gui/`** (the Python prototype that came first has been deleted). The thematic source of truth is `design/philosophy.md` (thesis, five colour philosophies, ten edges, lean principle); the mechanical source of truth is `design/core-model.md`; per-faction notes live in `design/factions/`, tuning results in `design/balance-notes.md`, and the original brief is archived at `design/history/the-mandate-design-brief.md` (historical — don't build from it). When asked to "build" or change rules, edit `gui/src/config.ts` (data) and `gui/src/game.ts` (logic); see `README.md` for the file map.
 
 The locked architecture is summarised below (in full in `design/core-model.md`) — follow it rather than improvising. The current model: **a character is one colour; a verb is tagged with one or more colours; a character can do a verb iff its colour is among the tags** (`canDo` in `config.ts`). Shard / signature / wing / home are design-doc vocabulary only — never declared in code or data. Verbs come in exactly two shapes: **signatures** (one colour) and **primitives** (three adjacent colours: a home colour + its two wheel neighbours) — never 2-colour, so the vocabulary caps at 10. The unit economy is **two currencies minted by the two unit primitives** (supporters via `rally_supporters` {G,R,W}, zealots via `muster_zealots` {R,B,G}; no soldiers). Do NOT reintroduce `if colour == X` branches, declared shards, a "signature" flag, or 2-colour verb rows — those were all removed in favour of plain colour-tagged verb rows.
 
 Decree scoring specifically: **`enact_decree` is SHARED {W,U,G}, not White's signature.** White's signature is **`allocate_supporters`** {W} — it places up to K supporters (from the loose stock grown by `rally_supporters`) onto decrees as *support*. A supported decree (≥1) both **scores each of its supporters** when it "bites" (rider complied with / always-clause fires) and is **defended** (a strike strips a supporter before it can remove the decree) — markers and shields collapsed into this one "support" concept. Support is keyed per player (`G.support[decreeId][seat]`), so a decree bites for *every* seat with support on it (the hook for a White-vs-White juggling metagame). Decrees live on the **shared table** (`G.decreesInPlay`) and pay no one for ownership. Don't revert `enact_decree` to a White-only signature, reattach scoring to the decree owner, or hardcode `WHITE` as the sole scorer in the decree chain.
+
+## The design frame (read before designing anything)
+
+The game is a deliberate attempt to build **the playable version of Duncan Sabien's essay "The MTG Color Wheel"** (linked from `design/philosophy.md`): each faction is one colour's philosophy — peace through order, perfection through knowledge, satisfaction through ruthlessness, freedom through action, harmony through acceptance — given an institution and a theory of where the right to rule comes from. `design/philosophy.md` carries that frame (the thesis, the five creeds, the ten edges, the overbalance failure modes, the lean principle). When proposing or changing mechanics, derive the justification from those philosophies and edges; don't improvise new theme or hand-wave a flavour rationale. If a proposed mechanic can't be tied to a colour philosophy or an edge, say so explicitly rather than inventing a justification.
+
+## Design-doc discipline
+
+The `design/` docs are **north stars**: present-tense statements of the intended design, held slightly above the day-to-day state of the prototype (no factual drift, but no implementation-status chatter either).
+
+- **Current design only.** Never frame design-doc content as corrections of or arguments against earlier drafts ("previously…", "a key correction over earlier drafts…", "an earlier version did X"). State what is; history lives in git and the archived brief.
+- **No balance state in design docs.** Never reference win-rates, who currently beats whom, or "as currently tuned" in `philosophy.md`, `core-model.md`, or `factions/*.md`. That evidence lives only in `design/balance-notes.md`.
+- **Rule changes go to their home doc.** When a tuning pass changes a *rule* (not just a number), update the rule's home design doc in the same change; `balance-notes.md` records only the evidence (what was run, what it showed, the takeaway).
+- **Don't add new design docs unprompted.** The set is `philosophy.md`, `core-model.md`, `factions/*.md`, `balance-notes.md` (plus the archived brief). Add a faction file only when that faction's design work actually starts.
 
 ## What's being built
 
@@ -35,16 +48,17 @@ The full locked architecture is the first section of `design/core-model.md` — 
 - **Two layers, one shared Mandate track** (first past the post; the target is config, never quote it in docs).
 - **Pentagon, wheel order W–U–B–R–G**; symmetry broken exactly once, at Black — do not make a second faction "special."
 - **One turn skeleton for everyone** (draw step, 2 actions, pass). Do NOT build per-faction turn phases.
-- **Each faction = 3 primitives + 1 signature; scoring rides the centre and is never lent out** (White decree-bites, Blue research, Red strikes, Green procession, Black circulation).
+- **Each faction = 3 primitives + 1 signature; scoring rides the centre and is never lent out** (White decree-bites, Blue publish, Red strikes, Green procession, Black circulation).
 - **Counterplay stays two distinct principles** — granularity (ramp factions lose to growth denial, interaction factions to stock attrition) and the wheel (designed enemies). Don't unify them.
 - **Every number is named config in `config.ts`** — no constants in rule logic. Tuning results (win-rates, parameter bands) go in `design/balance-notes.md`, never in docs or code comments.
 
 ## Known-open questions (don't silently resolve)
 
 Flag these if the user's request implicitly picks an answer:
-- **Player count.** Pentagon is strongest at 5; fewer means standalone tuning. Not yet decided.
-- Black's exact conversion set and throughput rate.
-- Red combat-resolution detail; green sanctuary rules (likely cut); Blue's exact card list and publish-action shape. (Blue's mechanics — shared research commons, private Archive, publish-for-points — are sketched in `design/factions/blue.md`.)
+- **The exchange verb (`procure/convert`).** Whose resources it converts, held where, at what cost — the highest-priority unresolved verb.
+- **Player count.** Five is the design north star; smaller tables are tuning instruments. How much standalone tuning sub-5 counts get is open.
+- Black's exact conversion set, throughput rate, and what it refuses.
+- Red combat-resolution detail; Green's identity (slow inevitability vs accelerating revival) and sanctuary rules (likely cut); Blue's exact card list and publish-action shape. (Blue's mechanics — shared research commons, private Archive, publish-for-points — are sketched in `design/factions/blue.md`.)
 
 ## Naming
 

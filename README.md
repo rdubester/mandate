@@ -4,8 +4,10 @@ A browser prototype for fast balance iteration on *The Mandate*, a 5-faction col
 board game. Currently **White (Assembly) vs. Red (Vanguard)**, per the build order in the
 design docs. Built on [boardgame.io](https://boardgame.io) (React + TypeScript).
 
-The design source of truth is [`design/core-model.md`](design/core-model.md); this app is the
-only engine.
+The design is a deliberate attempt at a playable rendering of the MTG colour wheel's
+philosophies. The thematic source of truth is [`design/philosophy.md`](design/philosophy.md);
+the mechanical source of truth is [`design/core-model.md`](design/core-model.md); this app is
+the only engine.
 
 ## Run
 
@@ -26,8 +28,9 @@ The **Rulebook** tab renders live from the config data.
 ## Files
 
 `design/` — the design docs (every design fact has exactly one home; other docs link to it):
-- `core-model.md` — the model + locked architecture. **Source of truth.**
-- `matchups.md` — wheel dynamics: who leans on whom, and why.
+- `philosophy.md` — the thematic source of truth: the thesis, the five colour philosophies,
+  the ten edges, the lean principle.
+- `core-model.md` — the mechanical source of truth: the verb model + locked architecture.
 - `factions/` — per-faction design notes as they firm up (`blue.md` so far).
 - `balance-notes.md` — the tuning log; the only place sim numbers live.
 - `history/the-mandate-design-brief.md` — the original v3 brief, archived.
@@ -67,9 +70,9 @@ trivially dominant clock. The loop: edit numbers in `config.ts` → `npm run sim
 and game length → `npm test` to confirm nothing broke. `npm run sim -- --mcts` measures the *game*
 under strong play rather than the scripted heuristics.
 
-Balance findings — win-rates, the bands you've tried, which knob moved what — deliberately do
-**not** live in these docs or in `config.ts` comments. They change every tuning pass and rot fast;
-log them in [`design/balance-notes.md`](design/balance-notes.md) instead.
+Balance findings — win-rates, bands tried, which knob moved what — live only in
+[`design/balance-notes.md`](design/balance-notes.md), never in the design docs or `config.ts`
+comments.
 
 ## What's intentionally minimal
 

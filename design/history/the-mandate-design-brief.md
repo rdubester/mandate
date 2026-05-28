@@ -1,8 +1,8 @@
 # The Mandate — Design Brief (v3)
 
 > **Historical document — do not build from this.** Kept for §-references and history. The
-> live design source of truth is `../core-model.md`; where anything here conflicts with it,
-> the core model wins. Known-superseded ideas in this brief include: Red "soldiers" (now
+> live design sources of truth are `../philosophy.md` (theme) and `../core-model.md`
+> (mechanics); where anything here conflicts with them, they win. Known-superseded ideas in this brief include: Red "soldiers" (now
 > zealots), the five named primitive actions and declared shards (now colour-tagged verbs),
 > White "marking" decrees (now supporter-based support), Mandate knockback on strikes (cut),
 > 2-colour edge verbs (verbs are 1- or 3-colour), and Blue having no shared research pool

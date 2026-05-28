@@ -1,49 +1,43 @@
 # The Mandate — core model
 
-*The design source of truth. Supersedes the original brief (now archived at
-`history/the-mandate-design-brief.md`) and all earlier framings of this doc. Matchup dynamics
-live in `matchups.md`, per-faction design in `factions/`, tuning results in `balance-notes.md`
-— and nowhere else: **every design fact has exactly one home; other docs link to it rather
-than restating it.** The prototype (`gui/`, TypeScript) is the live engine; this doc is the
-design intent it implements.*
+*The mechanical source of truth: the model the engine implements and the architecture that
+binds it. What the game is about — the thesis, the five colour philosophies, the ten edges,
+the lean principle — lives in `philosophy.md`. Per-faction design notes live in `factions/`,
+tuning evidence in `balance-notes.md`, and the original brief is archived at
+`history/the-mandate-design-brief.md`. The prototype (`gui/`, TypeScript) is the live engine;
+this doc is the design intent it implements.*
 
 ---
 
-## Locked architecture (the parts of the brief that still bind)
-
-Everything still binding from the original brief lives here; where this conflicts with a §
-of the brief, this doc wins.
+## Locked architecture
 
 - **Two strictly separated layers.** Primitives (cards, units, conversions) vs the victory
   layer: the **Mandate**, a single shared first-past-the-post track (target in `config.ts`).
 - **The pentagon.** Five factions on the colour wheel **W–U–B–R–G** (Assembly, Institute,
   Ledger, Vanguard, Orthodoxy); each has two allied neighbours and two enemies across the
-  wheel. Cards = {W decrees, U research}; units = {R zealots, G supporters}; Black owns no
-  primitive.
+  wheel. Substrates: cards = {W decrees, U research}; units = {R zealots, G supporters}.
+  Black mints no substrate of its own — its home verb is the exchange.
 - **Symmetry is broken exactly once, at Black.** No second "special" faction. Black's menu is
   built around conversion; it is the fixed point of the {W↔G, U↔R} reflection — the formal
   licence for its unique circulation scoring.
 - **One turn skeleton for everyone.** Draw step (volume varies by faction), then 2 actions,
   then pass. No per-faction turn phases — liveliness comes from decrees firing passively as
   others act.
-- **Scoring rides the centre, and centre perks are never lent out.** White: decree bites
-  (decoupled). Blue: research (welded). Red: strikes landed (welded). Green: procession
-  (decoupled). Black: circulation. Shared primitives and card-objects circulate; scoring
-  mechanics don't.
+- **Scoring rides the centre, and centre perks are never lent out.** White: decree bites.
+  Blue: publish. Red: strikes landed. Green: procession. Black: circulation. Shared primitives
+  and card-objects circulate; scoring mechanics don't. (How the five scoring shapes relate —
+  action vs accumulated state, accelerating vs linear — is the 2×2 in `philosophy.md`.)
 - **Counterplay is two distinct principles — never unify them.** *Granularity*: ramp factions
   (U, G) hold many small resources, so ±1 barely registers — beat them with growth denial
   (attack the rate, not the stock); interaction factions (W, R) rest on few chunky pieces —
-  beat them with stock attrition. And *the wheel*: designed enemy relationships.
+  beat them with stock attrition. And *the wheel*: designed enemy relationships (the enemy
+  edges in `philosophy.md`).
 - **Build order.** Spine (Mandate track + turn loop) → White vs Red → Green → Blue → Black
   last (its kit converts the others' primitives, so it's untestable in isolation).
-- **Engineering invariants (the brief's §10, honoured by `gui/`).** Game state is a plain
-  serializable object; the turn loop is a reducer (boardgame.io moves) — deterministic,
-  replayable, time-travelable; rules lean on data in `config.ts` and every number is named
-  config; everything is observable (`G.log`); a headless harness (`npm run sim`, `npm test`)
-  drives the same engine.
-- **Open questions — don't silently resolve:** player count (pentagon is strongest at 5);
-  Black's exact conversion set and throughput rate; Red combat-resolution detail; Green
-  sanctuary rules (likely cut).
+- **Engineering invariants.** Game state is a plain serializable object; the turn loop is a
+  reducer (boardgame.io moves) — deterministic, replayable, time-travelable; rules lean on
+  data in `config.ts` and every number is named config; everything is observable (`G.log`); a
+  headless harness (`npm run sim`, `npm test`) drives the same engine.
 
 ## The core model: one colour per character, colour-tagged verbs
 
@@ -53,260 +47,191 @@ The whole model is two sentences:
 > **A verb is tagged with one or more colours; a character can do a verb iff its colour is
 > among the verb's tags.**
 
-That is the entire availability rule (`canDo` in `config.ts`). Everything the brief called
-"shard," "signature," and "wing" is **not declared anywhere** — it *emerges* from how verbs are
-tagged, and the tags follow the wheel's adjacency (order **W–U–B–R–G**):
+That is the entire availability rule (`canDo` in `config.ts`). Shard, signature, and wing are
+**not declared anywhere** — they *emerge* from how verbs are tagged, and the tags follow the
+wheel's adjacency (order **W–U–B–R–G**):
 
 - A **signature** verb is tagged with **one** colour — reachable by exactly one character.
-  That's not a flag, it's just being the only holder of that colour. E.g. `allocate_supporters`
-  {W} → only White; `strike` {R} → only Red.
-- A **primitive** verb is tagged with **three adjacent** colours: a **home** colour plus its two
-  wheel neighbours — i.e. the shard centred on the home and the two shards holding it as a wing.
-  E.g. `enact_decree` (home W) → {G,W,U}; `rally_supporters` (home G) → {R,G,W}. **There are
-  never 2-colour verbs.** With one primitive and one signature per colour, the whole verb
-  vocabulary is capped at **10**.
-- A character's **shard** is design vocabulary, not an engine concept: by construction it is
-  just *its own colour + the two wheel neighbours* (the homes of the primitives it can reach).
-  You never write a shard down anywhere — not in the data, not in the code; the engine knows
-  nothing but colours-on-verbs and the membership check.
+  E.g. `allocate_supporters` {W} → only White; `strike` {R} → only Red.
+- A **primitive** verb is tagged with **three adjacent** colours: a **home** colour plus its
+  two wheel neighbours. E.g. `enact_decree` (home W) → {G,W,U}; `rally_supporters` (home G) →
+  {R,G,W}. **There are never 2-colour verbs.** With one primitive and one signature per
+  colour, the whole verb vocabulary is capped at **10**.
+- A character's **shard** is design vocabulary, not an engine concept: its own colour plus the
+  two wheel neighbours — the homes of the primitives it can reach. It is never written down in
+  data or code; the engine knows nothing but colours-on-verbs and the membership check.
 
-This is strictly simpler than the old three-tier scaffolding (scoring rule / signature / shared,
-plus a declared shard) and produces the same structure. The brief's pentagon, wings, and "shard
-IS the action menu" all fall out of *colour-tagged verbs + single-colour characters*.
+Why this shape:
 
-### Why this shape (vs. declaring shards / signatures)
 - **It's the rulebook's own vocabulary.** "This card is W and G" is a sentence a player reads
-  off a card. "This character has a tier-2 signature slot" is engine jargon.
-- **Authoring = adding rows.** Tag a verb's colours and it automatically appears for the right
-  1–3 characters, *including* as a borrowable wing tool for the wheel-chase. No per-faction kit
-  lists to maintain.
-- **It can't drift.** The Rulebook renders the verb tags directly and derives "who can do this"
-  the same way the engine gates moves. One source of truth.
+  off a card.
+- **Authoring = adding rows.** Tag a verb's colours and it appears for the right 1–3
+  characters, *including* as a borrowable wing tool for off-archetype leans.
+- **It can't drift.** The Rulebook renders the verb tags directly and derives "who can do
+  this" the same way the engine gates moves. One source of truth.
 
-### Scoring is still per-character
-Each character still has a **scoring rule** (how it wins) — this is the one thing that isn't a
-shared verb. It rides on the character's signature/centre verb:
-- White — decrees *bite* (decoupled / over-time): White scores when others live under its rules.
-- Blue — research *played* (welded / immediate).
-- Red — strikes *land* (welded / immediate).
-- Green — *procession*: cash units → Mandate (decoupled / over-time).
-- Black — *circulation*: throughput skimmed (the third mode).
+Each character also has a **scoring rule** (how it wins) — the one thing that isn't a shared
+verb. It rides the character's signature/centre verb and is never lent out.
 
-## "Running the wheel" = strategic lean, not gained access
-
-Important clarification (it tripped up an earlier draft): **a character's reachable verb set is
-static** — fixed by its colour and the verb tags. "Running the wheel into blue" does **not** mean
-White gains blue verbs. It means White *leans harder into the wing-colour verbs it already has*,
-depending on the matchup. Example: White can always `research` (once that's a shared W–U verb);
-against Red it chooses to research *more* than it would against Black. Access is structural;
-emphasis is strategic. (See `matchups.md`.)
-
-## The full verb grid (5 primitives + 5 signatures — the vocabulary ceiling)
+## The verb grid (5 primitives + 5 signatures — the vocabulary ceiling)
 
 | home | primitive (home + wings) | reachable by | signature (1 colour) |
 |---|---|---|---|
 | W | `enact_decree` {G,W,U} | Green, White, Blue | `allocate_supporters` {W} |
-| U | `draw/research` {W,U,B} | White, Blue, Black | `publish` / Archive {U} *(design)* |
-| B | `procure/convert` (market) {U,B,R} | Blue, Black, Red | circulation *(TBD)* {B} |
+| U | `draw/research` {W,U,B} | White, Blue, Black | `publish` {U} *(design)* |
+| B | `procure/convert` (the exchange) {U,B,R} | Blue, Black, Red | circulation *(TBD)* {B} |
 | R | `muster_zealots` {B,R,G} | Black, Red, Green | `strike` {R} |
 | G | `rally_supporters` {R,G,W} | Red, Green, White | `procession` {G} *(design)* |
 
-Per-faction access mix (cards / units / market): White 2-1-0, Green 1-2-0, Blue 2-0-1,
-Red 0-2-1 (cards only via the market — it can't draw), Black 1-1-1. White↔Green and Blue↔Red are
-mirror images and Black is the balanced fixed point — the brief's reflection-through-Black
-symmetry, reappearing at the access level.
+Per-faction access mix (cards / units / exchange): White 2-1-0, Green 1-2-0, Blue 2-0-1,
+Red 0-2-1 (cards only via the exchange — it can't draw), Black 1-1-1. White↔Green and
+Blue↔Red are mirror images and Black is the balanced fixed point — the {W↔G, U↔R} reflection
+reappearing at the access level. Two further structural facts (allies share their two home
+primitives; enemies share exactly one — the primitive homed at their mutual ally) are read
+philosophically in the edges section of `philosophy.md`.
 
-### As currently built (White vs Red prototype)
+The grid is the design target; which rows exist at any moment lives in `config.ts` and the
+in-app Rulebook, not here.
 
-| verb | home | colours | reaches today | role |
-|---|---|---|---|---|
-| `allocate_supporters` | W | W | White | White's signature — place up to K supporters on decrees as *support* (see below) |
-| `enact_decree` | W | W, U, G | White | the W-home primitive — install a standing table rule |
-| `deliberate` | U | W | White | the U-home draw primitive in embryo — draw from a shared deck (decree deck for now); widens to {W,U,B} and reskins as `research` when Blue lands |
-| `rally_supporters` | G | G, R, W | White, Red | the G-home primitive → +supporters (Red has no supporter sink yet, so it simply doesn't bother) |
-| `strike` | R | R | Red | Red's signature + scoring; spend a zealot, score on landing |
-| `muster_zealots` | R | R, B, G | Red | the R-home primitive → +zealots |
+## Strategic lean, not gained access
 
-In shard vocabulary: White plays as **GWU** and Red as **BRG** — but that's commentary on the
-table above, not a thing the engine (or the data) represents anywhere. As more primitives are
-built, each character's menu fills in toward its full shard automatically.
+A character's reachable verb set is **static** — fixed by its colour and the verb tags.
+"Leaning blue" never means gaining blue verbs; it means putting more of your two actions into
+the wing verbs you already hold, as the matchup demands. Access is structural; emphasis is
+strategic. When to lean which wing — escape vs confront — is the lean principle in
+`philosophy.md`.
 
-## Enact is shared; White's signature is `support` (one concept: scores AND defends)
+## Decrees and support (the White scoring chain)
 
-A key correction over earlier drafts: **`enact_decree` is NOT White's signature.** Governance
-has multiple colour-theories, so enacting decrees is **shared across {W,U,G}** — and the three
-enactors have genuinely different *reasons* to play a decree (the thing that makes a shared verb
-interesting rather than generic):
+**Enacting is shared; supporting is White's alone.** Governance has multiple colour-theories,
+so `enact_decree` is a primitive {G,W,U}, and the three enactors have genuinely different
+reasons to play one: White wants a *platform to back* (it scores by supporting); Blue plays
+decrees as a tempo bet (it benefits if everyone is moving faster right now); Green plays
+decrees to stabilise the board and buy time. Decrees live on the shared table and **pay no one
+for ownership**.
 
-- **White** plays decrees to have a *platform to back* — it scores off them (by supporting).
-- **Blue** plays decrees as a **tempo bet** — "I benefit if everyone is drawing faster *right
-  now*" — a technocratic, governance-as-optimization read.
-- **Green** plays decrees to **stabilise the board** — religious dogma that slows the game so
-  Green has more time to assemble its win condition.
+**A decree is a standing rule hooking the verb pipeline.** When any player takes a verb, each
+installed decree may:
 
-**White's signature is `allocate_supporters` — "support a decree":** it places up to **K** of its
-supporters (from the loose stock grown by `rally_supporters`) onto decrees on the table. A
-**supported** decree (≥1 supporter) does *two* things at once — this single concept replaces the
-earlier separate "markers" (scoring) and "shields" (defense):
+- **match** the verb (plus an optional detail predicate — wording is how decrees target
+  colours without naming factions);
+- apply an **ambient effect** to that verb (a tax or boon), with no choice;
+- offer the acting player a **rider** — a "may" clause, a genuine accept/decline choice.
 
-1. **Scores White** when it *bites* — i.e. when its output fires: a rider **complied with**
-   (someone took the "may"), or an always-clause effect takes hold. Flat amount, *not*
-   proportional to supporter count — White isn't populism; more base = more entrenched, not more
-   points.
-2. **Defends the decree** — a Red strike strips one supporter before it can remove the decree;
-   the decree only falls when struck at 0 support. So count = durability.
+The pipeline shape is stable; the vocabulary of triggers and effects is the small,
+deliberately-extensible part. Growing the decree set = adding rows, occasionally a new trigger
+word, never reshaping the pipeline.
 
-One investment (where White puts its legitimacy) simultaneously turns scoring *on* and makes the
-platform hard to tear down. *Detecting where the winds blow and committing your base to a
-platform.* The K-per-action ("K placements in a trenchcoat") gives White's two actions/turn real
-strategic weight without more actions; K itself is decree-modifiable (`alloc_delta`).
+**`allocate_supporters` {W} — "support a decree."** White places up to K supporters per action
+(`supporter_allocate_k`; K itself is decree-modifiable) from its loose stock onto decrees on
+the table, up to a per-decree cap (`supporter_cap_per_decree`). A **supported** decree (≥1
+supporter) does two things at once:
 
-This is a textbook **positional mechanic** (the north star below): the decrees are one shared
-pool, but White's support gives a subset a second valence only White sees and scores from. It
-**decouples who plays decrees (anyone in W,U,G) from who scores off them (White, by supporting)**
-— making decrees a true shared substrate, as the brief always wanted.
+1. **Scores its supporters when it bites** — when its rider is complied with or its
+   always-clause fires (the decree row's `score` field). The amount is flat per bite, *not*
+   proportional to supporter count: more base means more entrenched, not more points —
+   mass-proportional scoring is Green's procession, not White's.
+2. **Defends the decree** — a strike strips one supporter before it can remove the decree;
+   the decree only falls when struck at zero support. Count = durability.
 
-**Decrees pay no one for ownership.** The only Mandate a decree generates goes to whoever has
-*supported* it — and support is keyed per player (`G.support[decreeId][seat]`), so a decree bites
-for *every* seat with support on it. Only White can support today, so in practice that's White;
-the per-player keying is what lets two White seats juggle support on the shared decrees later.
-(Markers and shields were two parallel abstractions; collapsing them into one "support" concept
-is a complexity cut — one verb, one state field, one token type. A future `support` variant could
-allow free reallocation between decrees; current build places from stock, strips on strike.)
+One investment turns scoring on and makes the platform hard to tear down. Any decree row may
+carry a `score` field — a pure tax with no score is worthless to support. A bite may be
+triggered by any player's action, including the supporter's own: the legitimacy gate is
+**survival**, not whose hand pulled the trigger — enacting and then backing a decree consumes
+White's whole turn, so a decree only ever pays after living through everyone else's, and White
+profits exactly when the table can't, or won't, tear its order down.
 
-## The unit economy: two currencies from the two unit primitives
+Support is keyed per player (`G.support[decreeId][seat]`), so a decree bites for every seat
+with support on it — the hook for a future White-vs-White support-juggling metagame, and the
+reason support is state on the decree rather than a property of its owner. (A future variant
+could allow free reallocation of support between decrees; the current rule places from stock
+and strips on strike.)
 
-The unit economy is built from the two unit-minting primitives (one G-home, one R-home):
+## The unit economy: two currencies
 
-- **Community** → **supporters** (soft *stock*): numerous, granular — the
-  electorate/congregation. White's legitimacy fuel, Green's crop. Minted by the **G-home**
-  `rally_supporters` {R,G,W} — White courts citizens, Green grows the flock, Red does propaganda.
-- **Authenticity** → **zealots** (hard *flow*): the faithful-in-arms, spent directly as
-  ammunition for direct board actions (`strike`, later raids/conversions). Minted by the
-  **R-home** `muster_zealots` {B,R,G} — Red drafts, Green's faithful take up arms, Black hires
-  muscle.
+Two unit nouns, minted by the two unit primitives — and two is the ceiling; a third unit noun
+is the complexity alarm.
 
-**No soldiers.** An earlier `zealots → convert → soldiers → strike` chain was cut; the refine
-step added nothing — zealots ARE the ammunition Red spends. Two unit nouns total, and that's the
-ceiling; a third is the complexity alarm.
+- **Supporters** (soft *stock*): numerous, granular — the electorate, the congregation.
+  Strength in numbers. White's legitimacy fuel, Green's crop. Minted by the G-home
+  `rally_supporters` {R,G,W} — White courts citizens, Green grows the flock, Red does
+  propaganda.
+- **Zealots** (hard *flow*): the faithful-in-arms, spent as ammunition for direct board
+  actions (`strike`, later raids/conversions). Strong individuals. Minted by the R-home
+  `muster_zealots` {B,R,G} — Red drafts, Green's faithful take up arms, Black hires muscle.
+
+Zealots are priced dearer than supporters — a strong individual costs more than one more voice
+in the crowd — so a decree taxing zealot-spending bites a costlier resource than one taxing
+supporter growth.
 
 What falls out of the geometry (not assigned):
 
-- **White is structurally non-militant.** White's colour is W; the zealot-making verb is tagged
-  {B,R,G} — no W. White literally cannot reach it. Pacifism is a *gap in the verb tags*, not a
-  rule on White's card. (Engine-verified: `canDo(WHITE,"muster_zealots") === false`.)
-- **Blue never touches units at all** — U appears in neither unit primitive. The Institute's
-  weightlessness is also just a gap in the tags.
-- **Red and Green are the units pair** (the brief's primitive axis): both reach both unit
-  primitives. The difference is the *sinks*, not the sources — Red holds the sink that turns
-  flow into damage (`strike`); Green holds the sink that turns stock into points (`procession`)
-  plus decree access. Access can overlap; what you can *do with it* is what distinguishes.
-- **Sources can be wider than sinks.** Red can rally supporters today but has no supporter sink
-  (no allocate, no procession), so it simply doesn't bother — a structural fact bots discover on
-  their own, not a special case. Sinks, all of them signatures, are what stay scarce.
-- **Each cardinal faction self-sources its core input; only Black depends on the table.** Black
-  mints only muscle — it brokers (`convert`) existing resources. Its dependence on everyone is
-  its identity (the fixed point), not a weakness. Black's exact conversion set is still open
-  (build-last).
+- **White is structurally non-militant.** The zealot verb is tagged {B,R,G} — no W. Pacifism
+  is a gap in the verb tags, not a rule on White's card.
+- **Blue mints and holds no units** — U appears in neither unit primitive. Its only intended
+  contact with the unit economy is *denial* via the exchange (zealots → supporters, never
+  taking control of what it converts); the exchange verb's exact shape is open (see below).
+- **Red and Green are the units pair**: both reach both unit primitives. The difference is the
+  *sinks* — Red holds the sink that turns flow into damage (`strike`); Green holds the sink
+  that turns stock into points (`procession`), plus decree access. Access can overlap; what
+  you can do with it is what distinguishes.
+- **Sources can be wider than sinks.** A faction with access to a mint but no sink for its
+  output simply doesn't bother — a structural fact bots discover on their own, not a special
+  case. Sinks — all of them signatures — are what stay scarce.
+- **Each cardinal faction self-sources its core input; only Black depends on the table.**
+  Black brokers existing resources; its dependence on everyone is its identity, not a
+  weakness.
 
-The zealot scarcity that the old "Red's currency is expensive" multiplier encoded survives for
-free: zealots are dearer than supporters (conviction > broad assent), so a White decree taxing
-Red's *actions* (+1 zealot per strike) bites a costlier resource than one taxing supporter
-growth. (This is `martial_restraint` in the deck.)
+## The access-asymmetry table
 
-## Decrees: the hook pipeline (mechanics)
-
-A decree is a standing rule that hooks the verb pipeline: when ANY player takes a verb, each
-installed decree may
-
-- **match** the verb (+ an optional detail predicate, e.g. "when a *research* card is drawn" —
-  hits Blue often, Green never, which is wheel-targeting via wording);
-- apply an **ambient effect** to that verb (a tax/boon: `strike costs +1 zealot`,
-  `rally yields +1`), with no choice;
-- offer the acting player a **rider** — the "may" (e.g. "you *may* draw +1") — a genuine choice.
-
-The decree's **`score`** field is what **White** earns *if it has supported that decree* (≥1
-supporter on it) and the output bites (see "Enact is shared; White's signature is `support`"
-above): on *compliance* (rider taken) or *always*. White's theory of victory is **legitimacy**:
-it doesn't act for points, it skims Mandate when others act under the rules it chose to back.
-(Engine-verified: unsupported `open_records` scores nothing on a rally; supported, it pays White
-+1 each rally — see `gui/sim/engine.test.ts`.) The rider/compliance choice is modelled but
-currently auto-accepted (greedy); smarter policies are a hook (`wantsRider` in `game.ts`).
-
-The decree *pipeline shape* is stable; the *vocabulary* of triggers/effects is the small,
-deliberately-extensible part. Growing the decree set = adding rows + occasionally a new trigger
-word, never reshaping the pipeline.
-
-## The access-asymmetry thesis (derived from the wheel)
-
-Reading each character's eventual reachable colours as *which substrates it can touch* (this is
-the brief's structure; it fills in as verbs are built):
+Reading each character's eventual reachable colours as which substrates it can touch (this
+fills in as verbs are built):
 
 | Character | Colour | Eventually touches | Can't touch |
 |---|---|---|---|
-| **Red** | R | zealots, supporters, exchange, research cards (via the market — no draw) | decrees, direct draw |
-| **Blue** | U | decrees, research, exchange | units (supporters & zealots) |
-| **Black** | B | research, exchange, zealots | decrees, supporters |
 | **White** | W | supporters, decrees, research | exchange, zealots |
+| **Blue** | U | decrees, research, exchange | units (mint/hold) |
+| **Black** | B | research, exchange, zealots | decrees, supporters |
+| **Red** | R | zealots, supporters, exchange, research cards (via the exchange — no draw) | decrees, direct draw |
 | **Green** | G | zealots, supporters, decrees | exchange, research |
 
-Results that fall out of the geometry:
+Only White and Green cannot reach the exchange — exactly the two slow-accretion builders, and
+the mirror pair across the Black hinge.
 
-- **Only White and Green cannot reach the market (exchange)** — exactly the two slow-accretion
-  builders, and the mirror pair across the black hinge ({W↔G, U↔R}).
-- **The timing axis = distance from the market.** Closer to Black ⇒ faster/liquid (R, B, Black);
-  farther ⇒ slower/inevitable (W, G). The brief's timing axis is literally market-distance.
-- **Red is structurally White's antagonist** — its centre verb, `strike`, points at White's
-  centre substrate, decrees — distinct from being Blue's cross-wheel enemy. Both true, different
-  layers.
-- **Blue never gets its hands dirty** — no unit substrate; pure information; compounds privately
-  via the Archive while the research deck stays shared.
+## Design doctrine
 
-## North star: positional mechanics (author once, meaning flips by position)
+**North star: positional mechanics.** Prefer mechanics whose strategic meaning is positional —
+authored once, valenced by who holds them — over bespoke per-colour abilities. The exemplar is
+the exchange's `convert` (one verb, one implementation) whose direction of use flips by
+colour: Black converts whichever way pays (the broker skims the spread); Blue only ever wants
+zealots → supporters (disarm the table — denial, never control); Red wants the reverse
+(arm/radicalise the table). Three play-feels, zero extra code. Reach for this shape before
+authoring a bespoke per-colour ability. (The verb's exact operationalisation — whose
+resources, held where, at what cost — is the highest-priority open design item.)
 
-**Prefer mechanics whose strategic meaning is positional — authored once, valenced by who holds
-them** — over bespoke per-colour abilities. The exemplar is Black's `convert` (one verb, one
-implementation) whose *direction of use* flips by colour:
+**Symmetry broken only where play demands it.** A shared verb starts as the *same verb* (same
+effect, same numbers) for every character that holds it — authored once, tagged with colours.
+Break symmetry into per-character flavoured variants only where actual play (interest or
+balance) demands it. Earn each break.
 
-- **Black** (broker): converts whichever way pays; neutral; skims the spread; profits from the
-  war merely existing.
-- **Blue** (via B-wing): only ever wants **zealots → supporters** — *disarm the table*. Blue
-  fears Red more than White, and zealots arm Red. Flavour: *"drag people into the
-  enlightenment."* The most-blue sentence imaginable, and the only direction Blue pushes it.
-- **Red** (via B-wing): the opposite — **supporters → zealots** — *arm/radicalize the table*.
+**Complexity budget: data grows, engine stays flat.** The implementation is a proxy for the
+rulebook — if the code balloons, the rules ballooned, and rules that don't fit in a player's
+head are a failed board game.
 
-Three play-feels, zero extra code. This is the dream against the complexity budget: **richness
-emergent from position, not authored per-faction.** Reach for this shape before authoring a
-bespoke per-colour ability.
-
-## Prediction the model makes (a simulator-check)
-
-The wheel-chase "weaker to enemies than allies" implies **Blue prefers the table's unit-mass to
-be supporters, not zealots** (zealots arm Red, whom Blue fears most). For that to be
-load-bearing rather than narrative, the threat asymmetry must be real in the numbers:
-
-- **White attacks Blue's *rate*** (granular-ramp counterplay = growth denial): edicts taxing
-  card-draw, making the engine slower. Annoying, survivable.
-- **Red attacks Blue's *structure*** (the Archive itself): steal, shuffle, muck in cards, raid.
-  Far more disruptive — it corrupts the ordered state Blue's compounding depends on.
-
-Same victim, two enemies, two *kinds* of harm (rate vs. structure) — a clean instance of the
-brief's two-principle counterplay. **Simulator check (when Blue + Red exist):** does a Blue
-policy that converts zealots→supporters outperform one that doesn't, *specifically when Red is
-strong*? Yes ⇒ the geometry does real work. No ⇒ the threat asymmetry is mistuned (likely Red's
-reach can't hit the Archive hard enough). This is what the bot-sweep harness (`npm run sim`) is
-for.
-
-## Build philosophy: symmetry broken only where play demands it
-
-**Start fully symmetric in the shared (wing) verbs.** A shared verb is the *same verb* (same
-effect, same numbers) for every character that holds it — authored once, tagged with colours,
-auto-available. Prefer something quickly simple and playable over maximal richness. Only **break
-symmetry later**, where actual play (interest or balance) demands a per-character flavoured
-variant. This extends the brief's "symmetry broken exactly once, at black" discipline: earn each
-break.
-
-## Config + engine shape this implies
+- **Data-table size = richness.** Every decree, verb, character is a row; a rulebook can carry
+  a big card appendix and stay simple. Supposed to grow.
+- **Engine size = conceptual complexity.** Every special case is a rule that isn't expressible
+  as data. Must stay ~flat; engine growth is the alarm.
+- New content should almost always be a new **row**, occasionally a new **trigger/verb type**,
+  rarely a new **engine concept**. Editing the engine to add a single card means that card is
+  too bespoke for the rulebook.
+- **Colour may appear as data the engine reads, never as a branch it hardcodes.** `colours:
+  ["W","G"]` on a verb row is the rulebook's own vocabulary; `if colour == "red"` in engine
+  logic is a character property that escaped into code — push it into the data row. (This is
+  why `rally_supporters` and `muster_zealots` are separate colour-tagged verbs, not one
+  `deploy` with a `unit` field.)
+- This catches **rulebook** bloat, not **play** complexity. The simulator (`npm run sim`)
+  guards play complexity; the test suite (`npm test`) guards the model itself.
 
 ```
 COLOUR[character]      = one of W U B R G
@@ -315,49 +240,27 @@ canDo(character, verb) = COLOUR[character] ∈ verb.colours      # the whole rul
 DECREES{}: standing rules that hook the verb pipeline (trigger / effect / rider / score)
 ```
 
-(Shard / wing / home never appear in the engine — they're vocabulary for talking about the
-verb table, fully determined by the wheel order.)
-
-**Authoring content = adding rows.** Tag a verb with colours → it appears for the right
-characters, including as a borrowable wing tool.
-
-## Complexity budget: data grows, engine stays flat
-
-The implementation is a proxy for the rulebook — if the code balloons, the rules ballooned, and
-rules that don't fit in a player's head are a failed board game. Two *different* sizes:
-
-- **Data-table size = richness. Supposed to grow.** Every decree, verb, character is a row. A
-  rulebook can carry a big card appendix and stay simple (MTG, Dominion, Root). More rows = more
-  game. Fine.
-- **Engine size = conceptual complexity. Must stay ~flat.** Every `if colour == X` / special
-  case is a rule that *isn't* expressible as data. **Engine growth is the alarm.**
-
-Rules of thumb:
-- New content should almost always be a new **row**, occasionally a new **trigger/verb type**,
-  rarely a new **engine concept**. Editing the engine to add a *single* card means that card is
-  too bespoke for the rulebook.
-- **Colour may appear as data the engine reads, never as a branch it hardcodes.** `colours:
-  ["W","G"]` on a verb row = fine (the rulebook's own wheel vocabulary). `if colour == "red"` in
-  engine logic = a character property that escaped into code; push it into the data row. (This is
-  why `rally_supporters` and `muster_zealots` are *separate colour-tagged verbs*, not one
-  `deploy` with a `unit` field.)
-- This catches **rulebook** bloat, not **play** complexity — 20 simple cards can still combine
-  into an unreadable board. The **simulator** (`npm run sim` — game-length / win-rate
-  distributions) guards that. So: *code size guards rulebook size; the simulator guards play
-  complexity; the test suite (`npm test`) guards against the model silently breaking.*
-
 ## Open / deliberately deferred
-- Same-verb vs. flavoured-variant in the shared verbs — **decided: same to start**, break later.
-- Whether the unit currencies get a spatial board (counters → zones → regions): **decide by
-  sketching a concrete matchup**; let the abilities dictate the minimum unit model.
-- Exact verb pool and the Venn overlaps beyond the two green edges (the U-, B-side edges are
-  un-authored).
-- Black's exact conversion set + throughput rate (build-last).
-- **How White's supporters convert to winning.** Leaning: supporters are *legitimacy fuel* —
-  spent to pass/sustain edicts; White still scores only via decrees (compliance). Avoid an
-  independent supporter payoff that blurs into Green's procession.
-- `deliberate` → shared W–U `research` reskin when Blue lands.
 
-*(Balance figures — win-rates, the parameter bands tried, which knob moved what — are deliberately
-kept out of this doc and out of `config.ts` comments: they change every tuning pass and rot fast.
-Keep them in a separate balance-notes doc, read off `npm run sim`.)*
+- **`procure/convert` (the exchange):** whose resources it converts, held where, at what
+  cost — the highest-priority unresolved verb (it underpins Black's whole kit, Blue's denial
+  play, and Red's card access).
+- **Player count:** five is the design north star; smaller tables are tuning instruments. How
+  much standalone tuning sub-5 counts deserve is open.
+- **Game length:** the prototype targets short games for search/iteration tractability — an
+  accepted compromise (fast clocks tuned down, slow clocks up, at some cost in strategic
+  richness). Revisit when the bots can search longer horizons; the eventual target arc is
+  open.
+- **Black:** exact conversion set, circulation rate, and what it refuses (see
+  `philosophy.md`).
+- **Green:** identity (slow inevitability vs accelerating revival), sanctuary rules (likely
+  cut), procession shape.
+- **Blue:** publish-action shape, Archive/commons card list, and its counterplay surface (how
+  enemy pressure reaches the engine at all).
+- **Red:** combat-resolution detail beyond strip-and-remove.
+- **White:** how supporters relate to winning beyond legitimacy fuel — avoid an independent
+  supporter payoff that blurs into Green's procession.
+- **Shared draw:** today's `deliberate` reskins to the shared W–U `research` when Blue lands.
+- **Spatial board:** whether the unit currencies ever get zones/regions — decide by sketching
+  a concrete matchup; let the abilities dictate the minimum unit model.
+- **Cooperation mechanisms and full-table politics:** see `philosophy.md`, Open directions.
